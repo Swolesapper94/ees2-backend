@@ -1,0 +1,495 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────────
+
+enum Rank {
+  // Enlisted
+  PVT             // E1
+  PV2             // E2
+  PFC             // E3
+  SPC             // E4
+  CPL             // E4
+  SGT             // E5 — DA 2166-9-1
+  SSG             // E6 — DA 2166-9-2
+  SFC             // E7 — DA 2166-9-2
+  MSG             // E8 — DA 2166-9-2
+  FIRST_SERGEANT  // E8 — DA 2166-9-2
+  SGM             // E9 — DA 2166-9-3
+  CSM             // E9 — DA 2166-9-3
+  SMA             // E9 special
+  // Warrant Officers
+  WO1
+  CW2
+  CW3
+  CW4
+  CW5
+  // Officers
+  SECOND_LT
+  FIRST_LT
+  CPT
+  MAJ
+  LTC
+  COL
+  BG
+  MG
+  LTG
+  GEN
+}
+
+enum UserRole {
+  SOLDIER        // Can log support form entries, view own eval
+  RATER          // Writes Part III + Part IV rater sections
+  SENIOR_RATER   // Writes Part V senior rater section
+  REVIEWER       // Supplementary reviewer (when required)
+  ADMIN          // Unit admin: manage users, chains, units
+}
+
+enum EvalFormType {
+  NCOER_9_1    // DA 2166-9-1 — SGT (E5). Binary attribute ratings.
+  NCOER_9_2    // DA 2166-9-2 — SSG through 1SG/MSG (E6–E8). 4-level ratings.
+  NCOER_9_3    // DA 2166-9-3 — CSM/SGM (E9). 4-level ratings.
+}
+
+// ── RATING SCALES ─────────────────────────────────────────────────
+// E5 (SGT) — DA 2166-9-1 — binary per attribute
+enum RatingBinary {
+  MET_STANDARD
+  DID_NOT_MEET_STANDARD
+}
+
+// E6+ (SSG and above) — DA 2166-9-2 and 9-3 — 4-level per attribute
+enum RatingFourLevel {
+  NOT_MET_STANDARD
+  QUALIFIED
+  EXCEEDED_STANDARD
+  FAR_EXCEEDED_STANDARD
+}
+
+// Senior Rater overall potential — all NCO forms
+enum SeniorRaterRating {
+  MOST_QUALIFIED
+  HIGHLY_QUALIFIED
+  QUALIFIED
+  NOT_QUALIFIED
+}
+
+// ── EVALUATION STATUS ─────────────────────────────────────────────
+enum EvalStatus {
+  DRAFT                    // Started, rater working
+  RATER_COMPLETE           // Rater finished, sent to chain
+  PENDING_SENIOR_RATER     // SR working their section
+  PENDING_SOLDIER_ACK      // Awaiting rated soldier acknowledgment
+  PENDING_REVIEWER         // Awaiting supplementary reviewer (if required)
+  COMPLETE                 // All signatures collected
+  SUBMITTED                // Forwarded to HRC (future)
+}
+
+// ── SECTION KEYS ─────────────────────────────────────────────────
+// Maps to Part IV sections on the NCOER and support form
+enum SectionKey {
+  CHARACTER    // Army Values, Empathy, Warrior Ethos, Discipline
+  PRESENCE     // Bearing, Fitness, Confidence, Resilience
+  INTELLECT    // Mental Agility, Judgment, Innovation, Tact, Expertise
+  LEADS        // Leads Others, Trust, Influence, Example, Communicates
+  DEVELOPS     // Environment, Esprit, Prepares Self, Develops Others, Stewards
+  ACHIEVES     // Gets Results
+  // Not a Part IV section — separate forms:
+  RATER_OVERALL        // Part IV rater overall performance comments
+  SENIOR_RATER_OVERALL // Part V senior rater comments + box
+  SOLDIER_COMMENTS     // Rated soldier's acknowledgment comments
+}
+
+// ── SUPPORT FORM ENTRY TYPES ──────────────────────────────────────
+// Matches actual DA 2166-9-1A Part V structure
+enum EntryType {
+  OBJECTIVE        // "Indicate major performance objectives"
+  ACCOMPLISHMENT   // "List significant contributions and accomplishments"
+}
+
+enum SignatureStatus {
+  NOT_REQUIRED
+  PENDING
+  SIGNED
+  DECLINED
+}
+
+enum CounselingType {
+  INITIAL    // Within 30 days of rating period start (AR 623-3 requirement)
+  QUARTERLY  // Quarterly follow-up (AR 623-3 requirement)
+}
+
+// ─────────────────────────────────────────────────────────────────
+// UNITS
+// ─────────────────────────────────────────────────────────────────
+
+model Unit {
+  id        String   @id @default(cuid())
+  name      String                          // e.g. "C Co, 1-505 PIR"
+  uic       String?  @unique                // Unit Identification Code
+  parentId  String?
+  parent    Unit?    @relation("UnitHierarchy", fields: [parentId], references: [id])
+  children  Unit[]   @relation("UnitHierarchy")
+  users     User[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("units")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// USERS
+// ─────────────────────────────────────────────────────────────────
+
+model User {
+  id          String     @id @default(cuid())
+  supabaseId  String     @unique
+  email       String     @unique
+  firstName   String
+  lastName    String
+  rank        Rank
+  mos         String                        // e.g. "11B", "25U"
+  roles       UserRole[]
+  unitId      String?
+  unit        Unit?      @relation(fields: [unitId], references: [id])
+  dodid       String?    @unique            // Future CAC integration
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  // Relations
+  supportForms             SupportForm[]    @relation("SoldierSupportForms")
+  raterOnChains            RatingChain[]    @relation("RaterChains")
+  seniorRaterOnChains      RatingChain[]    @relation("SeniorRaterChains")
+  reviewerOnChains         RatingChain[]    @relation("ReviewerChains")
+  ratedOnChains            RatingChain[]    @relation("RatedSoldierChains")
+  signatures               Signature[]
+  notifications            Notification[]
+  auditLogs                AuditLog[]
+  seniorRaterProfile       SeniorRaterProfile?
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// RATING CHAINS
+// ─────────────────────────────────────────────────────────────────
+
+model RatingChain {
+  id              String    @id @default(cuid())
+  ratedSoldierId  String
+  raterId         String
+  seniorRaterId   String
+  reviewerId      String?                   // Required per AR 623-3 for certain grades
+  effectiveDate   DateTime
+  endDate         DateTime?
+  isActive        Boolean   @default(true)
+
+  ratedSoldier    User      @relation("RatedSoldierChains", fields: [ratedSoldierId], references: [id])
+  rater           User      @relation("RaterChains", fields: [raterId], references: [id])
+  seniorRater     User      @relation("SeniorRaterChains", fields: [seniorRaterId], references: [id])
+  reviewer        User?     @relation("ReviewerChains", fields: [reviewerId], references: [id])
+  evaluations     Evaluation[]
+  counselingSessions CounselingSession[]
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("rating_chains")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// COUNSELING SESSIONS
+// AR 623-3 requires: initial counseling within 30 days of period start,
+// plus quarterly follow-up counseling. This table tracks compliance.
+// ─────────────────────────────────────────────────────────────────
+
+model CounselingSession {
+  id             String          @id @default(cuid())
+  ratingChainId  String
+  ratingChain    RatingChain     @relation(fields: [ratingChainId], references: [id])
+  type           CounselingType
+  sessionDate    DateTime
+  notes          String?         // Summary comments for inclusion in NCOER
+  raterInitials  String?
+  soldierInitials String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@map("counseling_sessions")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// SUPPORT FORMS
+// ─────────────────────────────────────────────────────────────────
+
+model SupportForm {
+  id                String             @id @default(cuid())
+  soldierId         String
+  soldier           User               @relation("SoldierSupportForms", fields: [soldierId], references: [id])
+  ratingPeriodStart DateTime
+  ratingPeriodEnd   DateTime?
+  dutyTitle         String
+  dutyMosc          String
+  dailyDutiesScope  String?
+  areasOfEmphasis   String?
+  appointedDuties   String?
+  // Part IV: Soldier's own goals and expectations for the period
+  soldierGoals      String?
+  isActive          Boolean            @default(true)
+  entries           SupportFormEntry[]
+  evaluations       Evaluation[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@map("support_forms")
+}
+
+model SupportFormEntry {
+  id             String        @id @default(cuid())
+  supportFormId  String
+  supportForm    SupportForm   @relation(fields: [supportFormId], references: [id])
+  entryDate      DateTime      @default(now())
+
+  // Maps to Part V of DA 2166-9-1A
+  // Each section has both objectives and accomplishments
+  section        SectionKey    // CHARACTER | PRESENCE | INTELLECT | LEADS | DEVELOPS | ACHIEVES
+  entryType      EntryType     // OBJECTIVE | ACCOMPLISHMENT
+
+  rawText        String        // What the soldier or rater wrote
+  tags           String[]      // Free-form tags for filtering
+  isHighlight    Boolean       @default(false)  // Flagged as strongest entry for this period
+  counseled      Boolean       @default(false)  // Was this discussed in a counseling session?
+  counseledDate  DateTime?
+
+  // AI usage tracking
+  usedInEvalId   String?       // Which eval used this entry, if any
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@map("support_form_entries")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// EVALUATIONS (NCOERs)
+// ─────────────────────────────────────────────────────────────────
+
+model Evaluation {
+  id                    String       @id @default(cuid())
+  ratingChainId         String
+  ratingChain           RatingChain  @relation(fields: [ratingChainId], references: [id])
+  supportFormId         String?
+  supportForm           SupportForm? @relation(fields: [supportFormId], references: [id])
+  formType              EvalFormType
+  status                EvalStatus   @default(DRAFT)
+
+  // Part I — Administrative Data (exact DA form field names)
+  periodStart           DateTime
+  periodEnd             DateTime
+  ratedMonths           Int
+  nonRatedMonths        Int          @default(0)
+  nonRatedCodes         String?
+  reasonForSubmission   String       // Annual, Change of Rater, Relief for Cause, etc.
+  statusCode            String?      // e.g. "00" Active Duty
+  numberOfEnclosures    Int          @default(0)
+
+  // Part III — Duty Description (rater completes)
+  principalDutyTitle    String?
+  dutyMosc              String?
+  dailyDutiesScope      String?      // People, equipment, facilities, dollars
+  areasOfSpecialEmphasis String?
+  appointedDuties       String?
+
+  // Part V — Senior Rater succession planning
+  // AR 623-3: two successive assignments + one broadening (3-5 years)
+  successiveAssignment1 String?
+  successiveAssignment2 String?
+  broadeningAssignment  String?
+
+  // Senior rater overall
+  seniorRaterRating     SeniorRaterRating?
+
+  // APFT/ACFT data (Part IVa/IVb on DA 2166-9-1)
+  acftPassFail          String?      // "Pass" | "Fail" | "Profile"
+  acftDate              DateTime?
+  heightInches          Int?
+  weightLbs             Int?
+  withinWeightStandard  Boolean?
+
+  sections              EvalSection[]
+  signatures            Signature[]
+  aiGenerations         AiGeneration[]
+  auditLogs             AuditLog[]
+  notifications         Notification[]
+
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  @@map("evaluations")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// EVALUATION SECTIONS
+// One row per section per evaluation.
+// Rating field used depends on formType:
+//   - NCOER_9_1 → ratingBinary
+//   - NCOER_9_2 / NCOER_9_3 → ratingFourLevel
+// ─────────────────────────────────────────────────────────────────
+
+model EvalSection {
+  id               String           @id @default(cuid())
+  evaluationId     String
+  evaluation       Evaluation       @relation(fields: [evaluationId], references: [id])
+  section          SectionKey
+
+  // Rating box — only one is used per form type
+  ratingBinary     RatingBinary?    // E5 (SGT) forms only
+  ratingFourLevel  RatingFourLevel? // E6+ forms only
+
+  // Bullet pipeline
+  // stagingBullets = AI suggestions in the staging panel (not yet on the form)
+  // finalBullets   = bullets accepted and moved onto the form
+  stagingBullets   String[]         @default([])
+  finalBullets     String[]         @default([])
+
+  // Anti-autopilot tracking
+  // Tracks which final bullets originated from AI vs. were human-written
+  bulletSources    Json?
+  // e.g. { "0": "AI_MODIFIED", "1": "HUMAN", "2": "AI_UNMODIFIED" }
+  // "AI_UNMODIFIED" triggers the soft-gate prompt before submission
+
+  isComplete       Boolean          @default(false)
+  completedAt      DateTime?
+  completedById    String?
+
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@unique([evaluationId, section])
+  @@map("eval_sections")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// SENIOR RATER PROFILE
+// Tracks how many evals the SR has rated by grade and rating level.
+// Enforces the MQ% constraint — live profile meter in the UI.
+// ─────────────────────────────────────────────────────────────────
+
+model SeniorRaterProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id])
+
+  // Counts by grade (JSON for flexibility across form types)
+  // e.g. { "SGT": { "MQ": 2, "HQ": 5, "Q": 3, "NQ": 0 } }
+  profileData     Json     @default("{}")
+  lastUpdated     DateTime @default(now())
+
+  @@map("senior_rater_profiles")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// SIGNATURES
+// All parties are notified simultaneously (parallel, not sequential).
+// Status visible to everyone in the chain.
+// ─────────────────────────────────────────────────────────────────
+
+model Signature {
+  id             String          @id @default(cuid())
+  evaluationId   String
+  evaluation     Evaluation      @relation(fields: [evaluationId], references: [id])
+  userId         String
+  user           User            @relation(fields: [userId], references: [id])
+  role           UserRole
+  status         SignatureStatus @default(PENDING)
+  signedAt       DateTime?
+  declineReason  String?
+  notifiedAt     DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@unique([evaluationId, role])
+  @@map("signatures")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// AI GENERATIONS
+// Full audit trail: what went in, what came out, what the user chose.
+// ─────────────────────────────────────────────────────────────────
+
+model AiGeneration {
+  id              String     @id @default(cuid())
+  evaluationId    String
+  evaluation      Evaluation @relation(fields: [evaluationId], references: [id])
+  section         SectionKey
+  promptVersion   String     // Track which prompt version produced this output
+
+  // Pre-generation rater inputs (the guided questions)
+  raterResponses  Json?
+  // e.g. { "impactQuestion": "...", "developmentQuestion": "...", "promotionReady": true }
+
+  // What support form entries were selected as context
+  entryIds        String[]
+
+  // What Claude returned
+  outputBullets   String[]
+
+  // What the user did with each bullet
+  // -1 = rejected, 0-N = accepted (index into outputBullets)
+  // "modified" = accepted but edited
+  selectionLog    Json?
+  // e.g. [{ "index": 0, "action": "ACCEPTED_MODIFIED", "finalText": "..." }, ...]
+
+  createdAt       DateTime   @default(now())
+
+  @@map("ai_generations")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────────────────────────────
+
+model Notification {
+  id           String      @id @default(cuid())
+  userId       String
+  user         User        @relation(fields: [userId], references: [id])
+  evaluationId String?
+  evaluation   Evaluation? @relation(fields: [evaluationId], references: [id])
+  type         String      // "SIGNATURE_REQUIRED" | "EVAL_COMPLETE" | "COUNSELING_DUE" | etc.
+  title        String
+  message      String
+  readAt       DateTime?
+  createdAt    DateTime    @default(now())
+
+  @@map("notifications")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// AUDIT LOG — immutable, never delete rows
+// ─────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id           String      @id @default(cuid())
+  evaluationId String?
+  evaluation   Evaluation? @relation(fields: [evaluationId], references: [id])
+  actorId      String
+  actor        User        @relation(fields: [actorId], references: [id])
+  action       String
+  // Examples: SECTION_RATED | BULLET_ACCEPTED | BULLET_AI_UNMODIFIED_OVERRIDE
+  //           SIGNATURE_APPLIED | SIGNATURE_DECLINED | CONSISTENCY_CHECK_OVERRIDDEN
+  //           SR_PROFILE_MQ_WARNING_ACKNOWLEDGED
+  entityType   String
+  entityId     String
+  metadata     Json?
+  createdAt    DateTime    @default(now())
+
+  @@map("audit_logs")
+}
