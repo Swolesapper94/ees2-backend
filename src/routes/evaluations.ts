@@ -7,6 +7,8 @@ import {
   runConsistencyCheck,
   type SectionForCheck,
 } from "@/lib/ai/consistency-check";
+import { generateMilestones } from "@/lib/milestones/generate";
+import { staleSigDetect, captureSignatureHash } from "@/lib/signatures/content-hash";
 
 export const evaluationsRouter = Router();
 
@@ -19,10 +21,17 @@ const PART_IV_SECTIONS = [
   "ACHIEVES",
 ] as const;
 
+const ALL_FORM_TYPES = [
+  "NCOER_9_1", "NCOER_9_2", "NCOER_9_3",
+  "OER_67_10_1", "OER_67_10_1A",
+  "OER_67_10_2", "OER_67_10_2A",
+  "OER_67_10_3", "OER_67_10_4",
+] as const;
+
 const createEvalSchema = z.object({
   ratingChainId: z.string().min(1),
   supportFormId: z.string().optional(),
-  formType: z.enum(["NCOER_9_1", "NCOER_9_2", "NCOER_9_3"]),
+  formType: z.enum(ALL_FORM_TYPES),
   periodStart: z.coerce.date(),
   periodEnd: z.coerce.date(),
   ratedMonths: z.number().int().nonnegative(),
@@ -51,11 +60,26 @@ const signSchema = z.object({
 });
 
 // GET /api/evaluations
+// ?role=rater     → evaluations where I am the rater (my soldiers' evals)
+// ?role=soldier   → evaluations where I am the rated soldier (my own eval)
+// (no role param) → all evaluations the user can see (admin / all-evals view)
 evaluationsRouter.get(
   "/",
   requireAuth,
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    const role = req.query.role as string | undefined;
+    const userId = req.user?.id;
+
+    let whereClause: Parameters<typeof prisma.evaluation.findMany>[0]["where"] = {};
+
+    if (role === "rater" && userId) {
+      whereClause = { ratingChain: { raterId: userId } };
+    } else if (role === "soldier" && userId) {
+      whereClause = { ratingChain: { ratedSoldierId: userId } };
+    }
+
     const evals = await prisma.evaluation.findMany({
+      where: whereClause,
       include: {
         ratingChain: { include: { ratedSoldier: true, rater: true, seniorRater: true } },
         signatures: true,
@@ -66,21 +90,40 @@ evaluationsRouter.get(
   }),
 );
 
-// POST /api/evaluations — creates the eval + empty Part IV sections
+// POST /api/evaluations — creates the eval + empty Part IV sections + milestones
 evaluationsRouter.post(
   "/",
   requireAuth,
   asyncHandler(async (req, res) => {
     const body = createEvalSchema.parse(req.body);
+
+    // Resolve rater's rank to determine supplementary review requirement
+    const chain = await prisma.ratingChain.findUnique({
+      where: { id: body.ratingChainId },
+      include: { rater: true },
+    });
+    if (!chain) throw new HttpError(404, "Rating chain not found");
+    const requiresSupplementaryReview = chain.rater.rank === "FIRST_LT";
+
     const created = await prisma.evaluation.create({
       data: {
         ...body,
+        requiresSupplementaryReview,
         sections: {
           create: PART_IV_SECTIONS.map((section) => ({ section })),
         },
       },
       include: { sections: true },
     });
+
+    // Auto-generate AR 623-3 milestones
+    const milestones = generateMilestones(
+      created.id,
+      body.periodStart,
+      body.periodEnd
+    );
+    await prisma.evalMilestone.createMany({ data: milestones });
+
     res.status(201).json(created);
   }),
 );
@@ -160,6 +203,12 @@ evaluationsRouter.patch(
           : {}),
       },
     });
+
+    // Stale-detect any signatures whose hash no longer matches
+    if (req.user && (body.finalBullets || body.ratingBinary || body.ratingFourLevel)) {
+      staleSigDetect(req.params.id!, req.user.id).catch(() => {/* non-blocking */});
+    }
+
     res.json(updated);
   }),
 );
@@ -203,6 +252,19 @@ evaluationsRouter.post(
     const body = signSchema.parse(req.body);
     if (!req.user) throw new HttpError(401, "Not authenticated");
 
+    // Capture content hash at signing time
+    let contentHash: string | undefined;
+    if (body.action === "SIGN") {
+      try {
+        contentHash = await captureSignatureHash(
+          req.params.id!,
+          body.role as "RATER" | "SENIOR_RATER" | "SOLDIER" | "REVIEWER",
+        );
+      } catch {
+        // Non-fatal — proceed without hash
+      }
+    }
+
     const signature = await prisma.signature.upsert({
       where: {
         evaluationId_role: { evaluationId: req.params.id!, role: body.role },
@@ -214,11 +276,18 @@ evaluationsRouter.post(
         status: body.action === "SIGN" ? "SIGNED" : "DECLINED",
         signedAt: body.action === "SIGN" ? new Date() : null,
         declineReason: body.action === "DECLINE" ? body.declineReason : null,
+        contentHash: contentHash ?? null,
+        isStale: false,
       },
       update: {
         status: body.action === "SIGN" ? "SIGNED" : "DECLINED",
         signedAt: body.action === "SIGN" ? new Date() : null,
         declineReason: body.action === "DECLINE" ? body.declineReason : null,
+        contentHash: contentHash ?? null,
+        isStale: false,
+        staledAt: null,
+        staledByUserId: null,
+        staledReason: null,
       },
     });
 

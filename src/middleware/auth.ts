@@ -2,17 +2,127 @@ import type { NextFunction, Request, Response } from "express";
 import { verifySupabaseToken } from "@/lib/supabase";
 import { prisma } from "@/lib/prisma";
 import { isProd } from "@/config/env";
+import type { User } from "@prisma/client";
 
 /**
- * Development-only: Maps test credentials to database users.
- * Passwords are Base64(email:password) for simplicity in dev.
+ * Development-only: in-memory users — no database required.
  * Usage: Authorization: Bearer dev:james.smith@army.mil:testpass
  */
-const DEV_CREDENTIALS: Record<string, string> = {
-  "dev:james.smith@army.mil:testpass": "seed-soldier-smith",
-  "dev:robert.jones@army.mil:testpass": "seed-rater-jones",
-  "dev:david.davis@army.mil:testpass": "seed-sr-davis",
-  "dev:patricia.brown@army.mil:testpass": "seed-admin-brown",
+const DEV_USERS: Record<string, User> = {
+  "dev:james.smith@army.mil:testpass": {
+    id: "seed-soldier-smith",
+    supabaseId: "seed-soldier-smith",
+    email: "james.smith@army.mil",
+    firstName: "James",
+    lastName: "Smith",
+    rank: "SGT",
+    roles: ["SOLDIER"],
+    unitId: "unit-1",
+    createdAt: new Date("2024-01-01"),
+    updatedAt: new Date("2024-01-01"),
+  } as unknown as User,
+  "dev:robert.jones@army.mil:testpass": {
+    id: "seed-rater-jones",
+    supabaseId: "seed-rater-jones",
+    email: "robert.jones@army.mil",
+    firstName: "Robert",
+    lastName: "Jones",
+    rank: "SSG",
+    roles: ["RATER"],
+    unitId: "unit-1",
+    createdAt: new Date("2024-01-01"),
+    updatedAt: new Date("2024-01-01"),
+  } as unknown as User,
+  "dev:david.davis@army.mil:testpass": {
+    id: "seed-sr-davis",
+    supabaseId: "seed-sr-davis",
+    email: "david.davis@army.mil",
+    firstName: "David",
+    lastName: "Davis",
+    rank: "SFC",
+    roles: ["SENIOR_RATER"],
+    unitId: "unit-1",
+    createdAt: new Date("2024-01-01"),
+    updatedAt: new Date("2024-01-01"),
+  } as unknown as User,
+  "dev:patricia.brown@army.mil:testpass": {
+    id: "seed-admin-brown",
+    supabaseId: "seed-admin-brown",
+    email: "patricia.brown@army.mil",
+    firstName: "Patricia",
+    lastName: "Brown",
+    rank: "SSG",
+    roles: ["ADMIN"],
+    unitId: "unit-1",
+    createdAt: new Date("2024-01-01"),
+    updatedAt: new Date("2024-01-01"),
+  } as unknown as User,
+  // ── Delta Phase-1 personas (matched to dev-login.ts DEV_PROFILES) ──
+  "dev:peter.smith@army.mil:testpass": {
+    id: "dev-cpt-smith",
+    supabaseId: "dev-cpt-smith",
+    email: "peter.smith@army.mil",
+    firstName: "Peter",
+    lastName: "Smith",
+    rank: "CPT",
+    mos: "11A",
+    roles: ["SOLDIER", "RATER", "SENIOR_RATER", "COMMANDER"],
+    unitId: "dev-unit-505",
+    createdAt: new Date("2024-01-01"),
+    updatedAt: new Date("2024-01-01"),
+  } as unknown as User,
+  "dev:marcus.johnson@army.mil:testpass": {
+    id: "dev-ssg-johnson",
+    supabaseId: "dev-ssg-johnson",
+    email: "marcus.johnson@army.mil",
+    firstName: "Marcus",
+    lastName: "Johnson",
+    rank: "SSG",
+    mos: "11B",
+    roles: ["SOLDIER", "RATER"],
+    unitId: "dev-unit-505",
+    createdAt: new Date("2024-01-01"),
+    updatedAt: new Date("2024-01-01"),
+  } as unknown as User,
+  "dev:james.davis@army.mil:testpass": {
+    id: "dev-sgt-davis",
+    supabaseId: "dev-sgt-davis",
+    email: "james.davis@army.mil",
+    firstName: "James",
+    lastName: "Davis",
+    rank: "SGT",
+    mos: "11B",
+    roles: ["SOLDIER"],
+    unitId: "dev-unit-505",
+    createdAt: new Date("2024-01-01"),
+    updatedAt: new Date("2024-01-01"),
+  } as unknown as User,
+  "dev:maria.torres@army.mil:testpass": {
+    id: "dev-1lt-torres",
+    supabaseId: "dev-1lt-torres",
+    email: "maria.torres@army.mil",
+    firstName: "Maria",
+    lastName: "Torres",
+    rank: "FIRST_LT",
+    mos: "11A",
+    roles: ["SOLDIER", "RATER"],
+    unitId: "dev-unit-505",
+    createdAt: new Date("2024-01-01"),
+    updatedAt: new Date("2024-01-01"),
+  } as unknown as User,
+  "dev:robert.williams@army.mil:testpass": {
+    id: "dev-sfc-williams",
+    supabaseId: "dev-sfc-williams",
+    email: "robert.williams@army.mil",
+    firstName: "Robert",
+    lastName: "Williams",
+    rank: "SFC",
+    mos: "11B",
+    roles: ["SOLDIER", "RATER", "SENIOR_RATER"],
+    unitId: "dev-unit-505",
+    createdAt: new Date("2024-01-01"),
+    updatedAt: new Date("2024-01-01"),
+  } as unknown as User,
 };
 
 /**
@@ -33,14 +143,11 @@ export async function requireAuth(
 
   const token = header.slice("Bearer ".length).trim();
 
-  // Dev mode: allow test credentials
-  if (!isProd && token in DEV_CREDENTIALS) {
-    const supabaseId = DEV_CREDENTIALS[token];
-    req.authUserId = supabaseId;
-    const user = await prisma.user.findUnique({
-      where: { supabaseId },
-    });
-    if (user) req.user = user;
+  // Dev mode: resolve user from in-memory map — no database required
+  if (!isProd && token in DEV_USERS) {
+    const user = DEV_USERS[token];
+    req.authUserId = user.supabaseId;
+    req.user = user;
     next();
     return;
   }

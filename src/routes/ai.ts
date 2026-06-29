@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { asyncHandler, HttpError } from "@/middleware/error";
 import { requireAuth } from "@/middleware/auth";
-import { generateBullets } from "@/lib/ai/claude";
+import { generateBullets } from "@/lib/ai/openai";
 import {
   SYSTEM_PROMPT,
   PROMPT_VERSION,

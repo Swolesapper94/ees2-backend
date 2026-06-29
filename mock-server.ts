@@ -35,6 +35,19 @@ app.use((req, res, next) => {
   res.status(401).json({ error: "Invalid token" });
 });
 
+const SECTION_KEYS = ["CHARACTER", "PRESENCE", "INTELLECT", "LEADS", "DEVELOPS", "ACHIEVES", "RATER_OVERALL"] as const;
+
+const mockSections = SECTION_KEYS.map((key, i) => ({
+  id: `section-${i + 1}`,
+  section: key,
+  ratingBinary: key === "CHARACTER" ? null : null,
+  ratingFourLevel: null,
+  stagingBullets: [],
+  finalBullets: [],
+  bulletSources: {},
+  isComplete: false,
+}));
+
 const mockEvaluations = [
   {
     id: "eval-1",
@@ -48,8 +61,9 @@ const mockEvaluations = [
     dutyDescription: "Lead rifle squad",
     ratedSoldierName: "Smith, James",
     ratedSoldierRank: "SGT",
+    sections: mockSections,
     ratingChain: {
-      ratedSoldier: { firstName: "James", lastName: "Smith", rank: "SGT" },
+      ratedSoldier: { firstName: "James", lastName: "Smith", rank: "SGT", mos: "11B" },
       rater: { firstName: "Robert", lastName: "Jones", rank: "SSG" },
       seniorRater: { firstName: "David", lastName: "Davis", rank: "SFC" },
     },
@@ -79,7 +93,12 @@ app.get("/api/evaluations/:id", (req, res) => {
 });
 app.post("/api/evaluations", (req, res) => res.status(201).json({ id: "new", ...req.body }));
 app.patch("/api/evaluations/:id", (req, res) => res.json(mockEvaluations[0]));
-app.patch("/api/evaluations/:id/sections/:section", (req, res) => res.json({ saved: true }));
+app.patch("/api/evaluations/:id/sections/:section", (req, res) => {
+  const eval_ = mockEvaluations[0];
+  const sec = eval_.sections.find((s) => s.section === req.params.section);
+  if (sec) Object.assign(sec, req.body);
+  res.json({ saved: true });
+});
 app.post("/api/evaluations/:id/sign", (req, res) => res.json({ success: true }));
 app.post("/api/evaluations/:id/consistency-check", (req, res) => res.json({ isConsistent: true }));
 app.get("/api/pdf/evaluations/:id", (req, res) => {

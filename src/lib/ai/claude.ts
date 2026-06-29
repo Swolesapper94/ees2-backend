@@ -43,6 +43,82 @@ export async function generateBullets(
 }
 
 /**
+ * Calls Claude with a base64-encoded image (or PDF via URL) for vision extraction.
+ * Returns the raw text response.
+ */
+export async function extractTextFromImage(args: {
+  imageBase64: string;
+  mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+  systemPrompt: string;
+}): Promise<string> {
+  const message = await getClaude().messages.create({
+    model: env.anthropicModel,
+    max_tokens: 4096,
+    system: args.systemPrompt,
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: args.mediaType,
+              data: args.imageBase64,
+            },
+          },
+          { type: "text", text: "Extract all text from this support form as instructed." },
+        ],
+      },
+    ],
+  });
+
+  return message.content
+    .filter((block): block is Anthropic.TextBlock => block.type === "text")
+    .map((block) => block.text)
+    .join("")
+    .trim();
+}
+
+/**
+ * Calls Claude with a text prompt and expects a JSON response.
+ * Returns the parsed JSON or throws on parse failure.
+ */
+export async function callClaudeForJson<T = unknown>(args: {
+  systemPrompt: string;
+  userPrompt: string;
+  maxTokens?: number;
+}): Promise<T> {
+  const message = await getClaude().messages.create({
+    model: env.anthropicModel,
+    max_tokens: args.maxTokens ?? 2048,
+    system: args.systemPrompt,
+    messages: [{ role: "user", content: args.userPrompt }],
+  });
+
+  let text = message.content
+    .filter((block): block is Anthropic.TextBlock => block.type === "text")
+    .map((block) => block.text)
+    .join("")
+    .trim();
+
+  // Strip markdown fences if present
+  text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+
+  // Extract first JSON object or array
+  const start = Math.min(
+    text.indexOf("[") !== -1 ? text.indexOf("[") : Infinity,
+    text.indexOf("{") !== -1 ? text.indexOf("{") : Infinity,
+  );
+  const lastClose = Math.max(text.lastIndexOf("]"), text.lastIndexOf("}"));
+  if (start !== Infinity && lastClose > start) {
+    text = text.slice(start, lastClose + 1);
+  }
+
+  return JSON.parse(text) as T;
+}
+
+/**
  * Defensive parse: strips accidental code fences and extracts the JSON array.
  */
 export function parseBulletArray(raw: string): string[] {

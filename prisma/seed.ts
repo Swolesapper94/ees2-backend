@@ -680,6 +680,240 @@ async function main() {
     ],
   });
 
+  // ── Delta Phase-1 dev personas (matched to dev-login.ts DEV_PROFILES) ──
+  const devUnit = await prisma.unit.upsert({
+    where: { uic: "WB1AA0" },
+    update: {},
+    create: { id: "dev-unit-505", name: "B Co, 1-505 PIR, 82nd ABN", uic: "WB1AA0" },
+  });
+
+  const devPersonas = [
+    {
+      id: "dev-cpt-smith",
+      supabaseId: "dev-cpt-smith",
+      email: "peter.smith@army.mil",
+      firstName: "Peter",
+      lastName: "Smith",
+      rank: "CPT" as const,
+      mos: "11A",
+      roles: ["SOLDIER", "RATER", "SENIOR_RATER", "COMMANDER"] as const,
+    },
+    {
+      id: "dev-ssg-johnson",
+      supabaseId: "dev-ssg-johnson",
+      email: "marcus.johnson@army.mil",
+      firstName: "Marcus",
+      lastName: "Johnson",
+      rank: "SSG" as const,
+      mos: "11B",
+      roles: ["SOLDIER", "RATER"] as const,
+    },
+    {
+      id: "dev-sgt-davis",
+      supabaseId: "dev-sgt-davis",
+      email: "james.davis@army.mil",
+      firstName: "James",
+      lastName: "Davis",
+      rank: "SGT" as const,
+      mos: "11B",
+      roles: ["SOLDIER"] as const,
+    },
+    {
+      id: "dev-1lt-torres",
+      supabaseId: "dev-1lt-torres",
+      email: "maria.torres@army.mil",
+      firstName: "Maria",
+      lastName: "Torres",
+      rank: "FIRST_LT" as const,
+      mos: "11A",
+      roles: ["SOLDIER", "RATER"] as const,
+    },
+    {
+      id: "dev-sfc-williams",
+      supabaseId: "dev-sfc-williams",
+      email: "robert.williams@army.mil",
+      firstName: "Robert",
+      lastName: "Williams",
+      rank: "SFC" as const,
+      mos: "11B",
+      roles: ["SOLDIER", "RATER", "SENIOR_RATER"] as const,
+    },
+  ];
+
+  const devUsers: Record<string, { id: string }> = {};
+  for (const p of devPersonas) {
+    const u = await prisma.user.upsert({
+      where: { email: p.email },
+      update: { supabaseId: p.supabaseId, roles: [...p.roles] },
+      create: { ...p, roles: [...p.roles], unitId: devUnit.id },
+    });
+    devUsers[p.id] = u;
+  }
+
+  // ── Dev Rating Chains — wire 5 personas into realistic formation ─
+  // Chain 1: SGT Davis (rated) ← SSG Johnson (rater) ← SFC Williams (SR)
+  await prisma.ratingChain.upsert({
+    where: { id: "dev-chain-davis" },
+    update: {},
+    create: {
+      id: "dev-chain-davis",
+      ratedSoldierId: devUsers["dev-sgt-davis"]!.id,
+      raterId: devUsers["dev-ssg-johnson"]!.id,
+      seniorRaterId: devUsers["dev-sfc-williams"]!.id,
+      effectiveDate: new Date("2025-06-01"),
+    },
+  });
+
+  // Chain 2: SSG Johnson (rated) ← SFC Williams (rater) ← CPT Smith (SR)
+  await prisma.ratingChain.upsert({
+    where: { id: "dev-chain-johnson" },
+    update: {},
+    create: {
+      id: "dev-chain-johnson",
+      ratedSoldierId: devUsers["dev-ssg-johnson"]!.id,
+      raterId: devUsers["dev-sfc-williams"]!.id,
+      seniorRaterId: devUsers["dev-cpt-smith"]!.id,
+      effectiveDate: new Date("2025-06-01"),
+    },
+  });
+
+  // Chain 3: SFC Williams (rated) ← CPT Smith (rater + SR for demo)
+  await prisma.ratingChain.upsert({
+    where: { id: "dev-chain-williams" },
+    update: {},
+    create: {
+      id: "dev-chain-williams",
+      ratedSoldierId: devUsers["dev-sfc-williams"]!.id,
+      raterId: devUsers["dev-cpt-smith"]!.id,
+      seniorRaterId: devUsers["dev-cpt-smith"]!.id,
+      effectiveDate: new Date("2025-06-01"),
+    },
+  });
+
+  // Chain 4: 1LT Torres (rated, triggers supplementary review) ← CPT Smith (rater + SR)
+  await prisma.ratingChain.upsert({
+    where: { id: "dev-chain-torres" },
+    update: {},
+    create: {
+      id: "dev-chain-torres",
+      ratedSoldierId: devUsers["dev-1lt-torres"]!.id,
+      raterId: devUsers["dev-cpt-smith"]!.id,
+      seniorRaterId: devUsers["dev-cpt-smith"]!.id,
+      effectiveDate: new Date("2025-06-01"),
+    },
+  });
+
+  // Chain 5: CPT Smith (rated as soldier — has own OER)
+  // Stub chain — rater/SR would be MAJ/LTC but we keep it self-referential for demo
+  await prisma.ratingChain.upsert({
+    where: { id: "dev-chain-smith" },
+    update: {},
+    create: {
+      id: "dev-chain-smith",
+      ratedSoldierId: devUsers["dev-cpt-smith"]!.id,
+      raterId: devUsers["dev-cpt-smith"]!.id,       // stub — would be MAJ in real life
+      seniorRaterId: devUsers["dev-cpt-smith"]!.id, // stub — would be LTC
+      effectiveDate: new Date("2025-06-01"),
+    },
+  });
+
+  // ── Dev Evaluation: SGT Davis — NCOER 9-1, RATER_IN_PROGRESS ──
+  const davisEval = await prisma.evaluation.upsert({
+    where: { id: "dev-eval-davis" },
+    update: {},
+    create: {
+      id: "dev-eval-davis",
+      ratingChainId: "dev-chain-davis",
+      formType: "NCOER_9_1",
+      status: "RATER_IN_PROGRESS",
+      periodStart: new Date("2025-06-01"),
+      periodEnd: new Date("2026-05-31"),
+      ratedMonths: 12,
+      nonRatedMonths: 0,
+      reasonForSubmission: "Annual",
+      principalDutyTitle: "Team Leader",
+      dutyMosc: "11B2O",
+      requiresSupplementaryReview: false,
+    },
+  });
+
+  // 3 of 6 sections complete
+  const davisSections = [
+    { section: "CHARACTER" as const, ratingBinary: "MET_STANDARD" as const,
+      finalBullets: ["- Maintained uncompromising integrity; zero UCMJ actions — set standard for squad"], isComplete: true },
+    { section: "PRESENCE" as const, ratingBinary: "MET_STANDARD" as const,
+      finalBullets: ["- Scored 521 ACFT; maintained physical readiness standard throughout rating period"], isComplete: true },
+    { section: "INTELLECT" as const, ratingBinary: "MET_STANDARD" as const,
+      finalBullets: ["- Completed 3 online military education modules; applied lessons to team battle drills"], isComplete: true },
+    { section: "LEADS" as const, ratingBinary: null, finalBullets: [], isComplete: false },
+    { section: "DEVELOPS" as const, ratingBinary: null, finalBullets: [], isComplete: false },
+    { section: "ACHIEVES" as const, ratingBinary: null, finalBullets: [], isComplete: false },
+  ];
+
+  for (const s of davisSections) {
+    await prisma.evalSection.upsert({
+      where: { evaluationId_section: { evaluationId: davisEval.id, section: s.section } },
+      update: {},
+      create: {
+        evaluationId: davisEval.id,
+        section: s.section,
+        ratingBinary: s.ratingBinary,
+        finalBullets: s.finalBullets,
+        bulletSources: Object.fromEntries(s.finalBullets.map((_, i) => [String(i), "HUMAN"])),
+        isComplete: s.isComplete,
+        completedAt: s.isComplete ? new Date("2026-06-01") : null,
+      },
+    });
+  }
+
+  // Milestones for Davis eval
+  const { generateMilestones } = await import("../src/lib/milestones/generate");
+  const davisMilestones = generateMilestones("dev-eval-davis", new Date("2025-06-01"), new Date("2026-05-31"));
+  for (const m of davisMilestones) {
+    await prisma.evalMilestone.upsert({
+      where: { evaluationId_type: { evaluationId: m.evaluationId, type: m.type } },
+      update: {},
+      create: m,
+    });
+  }
+
+  // ── Dev Evaluation: SSG Johnson — NCOER 9-2, DRAFT ───────────
+  const johnsonEval = await prisma.evaluation.upsert({
+    where: { id: "dev-eval-johnson" },
+    update: {},
+    create: {
+      id: "dev-eval-johnson",
+      ratingChainId: "dev-chain-johnson",
+      formType: "NCOER_9_2",
+      status: "DRAFT",
+      periodStart: new Date("2025-06-01"),
+      periodEnd: new Date("2026-05-31"),
+      ratedMonths: 12,
+      nonRatedMonths: 0,
+      reasonForSubmission: "Annual",
+      principalDutyTitle: "Squad Leader",
+      dutyMosc: "11B3O",
+      requiresSupplementaryReview: false,
+    },
+  });
+
+  for (const sec of ["CHARACTER","PRESENCE","INTELLECT","LEADS","DEVELOPS","ACHIEVES"] as const) {
+    await prisma.evalSection.upsert({
+      where: { evaluationId_section: { evaluationId: johnsonEval.id, section: sec } },
+      update: {},
+      create: { evaluationId: johnsonEval.id, section: sec, finalBullets: [], bulletSources: {}, isComplete: false },
+    });
+  }
+
+  const johnsonMilestones = generateMilestones("dev-eval-johnson", new Date("2025-06-01"), new Date("2026-05-31"));
+  for (const m of johnsonMilestones) {
+    await prisma.evalMilestone.upsert({
+      where: { evaluationId_type: { evaluationId: m.evaluationId, type: m.type } },
+      update: {},
+      create: m,
+    });
+  }
+
   // eslint-disable-next-line no-console
   console.log("✅ Seed complete:");
   // eslint-disable-next-line no-console
@@ -690,6 +924,8 @@ async function main() {
   console.log(`   COMPLETE eval:     ${smithEval.id} (SGT Smith — NCOER_9_1, all sections + signatures)`);
   // eslint-disable-next-line no-console
   console.log(`   IN-PROGRESS eval:  ${jonesEval.id} (SSG Jones — NCOER_9_2, PENDING_SENIOR_RATER)`);
+  // eslint-disable-next-line no-console
+  console.log(`   Dev personas:      ${devPersonas.map(p => p.email).join(", ")}`);
 }
 
 main()
