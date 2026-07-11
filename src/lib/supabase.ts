@@ -7,7 +7,20 @@ let serviceClient: SupabaseClient | null = null;
 
 export function getSupabaseAdmin(): SupabaseClient {
   if (!serviceClient) {
-    serviceClient = createClient(env.supabaseUrl, env.supabaseServiceRoleKey, {
+    const key = env.supabaseServiceRoleKey;
+    if (!key) {
+      throw new Error(
+        `SUPABASE_SERVICE_ROLE_KEY is required but not set in .env\n\n` +
+        `To fix:\n` +
+        `1. Sign in to https://supabase.com\n` +
+        `2. Select your project (eytzzqeculldegxpsxak)\n` +
+        `3. Go to Settings → API\n` +
+        `4. Copy the "service_role" secret (looks like eyJ...)\n` +
+        `5. Add to .env: SUPABASE_SERVICE_ROLE_KEY=<paste-the-key-here>\n` +
+        `6. Restart backend: npm run dev:real\n`
+      );
+    }
+    serviceClient = createClient(env.supabaseUrl, key, {
       auth: {
         autoRefreshToken: false,
         persistSession: false,

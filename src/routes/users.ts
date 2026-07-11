@@ -41,7 +41,41 @@ usersRouter.get(
       res.status(404).json({ error: "User record not found" });
       return;
     }
-    res.json(req.user);
+    const unit = req.user.unitId
+      ? await prisma.unit.findUnique({ where: { id: req.user.unitId } })
+      : null;
+    res.json({ ...req.user, unit });
+  }),
+);
+
+const updateMeSchema = z.object({
+  profilePictureUrl: z.string().url().nullable().optional(),
+  notificationPreferences: z.record(z.boolean()).optional(),
+});
+
+// PATCH /api/users/me — self-service profile & notification-preference updates
+usersRouter.patch(
+  "/me",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (!req.user) {
+      res.status(401).json({ error: "Not authenticated" });
+      return;
+    }
+    const body = updateMeSchema.parse(req.body);
+    const data: { profilePictureUrl?: string | null; notificationPreferences?: object } = {};
+
+    if (body.profilePictureUrl !== undefined) {
+      data.profilePictureUrl = body.profilePictureUrl;
+    }
+    if (body.notificationPreferences !== undefined) {
+      const existing =
+        (req.user.notificationPreferences as Record<string, boolean> | null) ?? {};
+      data.notificationPreferences = { ...existing, ...body.notificationPreferences };
+    }
+
+    const updated = await prisma.user.update({ where: { id: req.user.id }, data });
+    res.json(updated);
   }),
 );
 

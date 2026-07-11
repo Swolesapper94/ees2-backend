@@ -29,9 +29,9 @@ export const env = {
   supabaseServiceRoleKey: required("SUPABASE_SERVICE_ROLE_KEY"),
 
   openaiApiKey: required("OPENAI_API_KEY"),
-  openaiModel: process.env.OPENAI_MODEL ?? "gpt-5.4-mini-2026-03-17",
+  openaiModel: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
 
-  anthropicApiKey: required("ANTHROPIC_API_KEY"),
+  anthropicApiKey: required("ANTHROPIC_API_KEY", ""), // Optional fallback
   anthropicModel: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6",
 } as const;
 

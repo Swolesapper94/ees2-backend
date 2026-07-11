@@ -33,8 +33,12 @@ commanderRouter.get(
       },
       include: {
         unit: { select: { name: true } },
+        // Fetch EVERY rating chain the Soldier has ever been rated on (not
+        // just the active one) so we can detect a "chain gap" — a Soldier
+        // whose most recent chain ended with no active replacement, the
+        // exact PCS/change-of-rater failure mode called out in product
+        // research as a recurring driver of NCOER appeals.
         ratedOnChains: {
-          where: { isActive: true },
           include: {
             evaluations: {
               orderBy: { createdAt: "desc" },
@@ -44,7 +48,7 @@ commanderRouter.get(
             rater: { select: { firstName: true, lastName: true, rank: true } },
             seniorRater: { select: { firstName: true, lastName: true, rank: true } },
           },
-          take: 1,
+          orderBy: { effectiveDate: "desc" },
         },
       },
       orderBy: [{ lastName: "asc" }],
@@ -53,7 +57,14 @@ commanderRouter.get(
     // Compute overdue + due-soon for each soldier
     const now = new Date();
     const formation = soldiers.map((s) => {
-      const chain = s.ratedOnChains[0];
+      const allChains = s.ratedOnChains;
+      const activeChain = allChains.find((c) => c.isActive);
+      const mostRecentChain = allChains[0]; // ordered desc by effectiveDate
+      // A "gap" requires having HAD a chain before — a Soldier who has never
+      // been assigned one yet isn't a gap, just not onboarded.
+      const hasChainGap = allChains.length > 0 && !activeChain;
+
+      const chain = activeChain;
       const latestEval = chain?.evaluations[0];
       const overdueMilestones =
         latestEval?.milestones.filter(
@@ -74,13 +85,20 @@ commanderRouter.get(
         periodEnd: latestEval ? chain?.evaluations[0] : null,
         overdueMilestoneCount: overdueMilestones.length,
         isOverdue: overdueMilestones.length > 0,
+        hasChainGap,
+        lastChainRater: hasChainGap ? mostRecentChain?.rater : undefined,
+        lastChainEndDate: hasChainGap
+          ? mostRecentChain?.endDate ?? mostRecentChain?.effectiveDate
+          : undefined,
       };
     });
 
-    // Sort: overdue first, then by lastName
+    // Sort: chain gaps and overdue first, then by lastName
     formation.sort((a, b) => {
-      if (a.isOverdue && !b.isOverdue) return -1;
-      if (!a.isOverdue && b.isOverdue) return 1;
+      const aFlag = a.hasChainGap || a.isOverdue;
+      const bFlag = b.hasChainGap || b.isOverdue;
+      if (aFlag && !bFlag) return -1;
+      if (!aFlag && bFlag) return 1;
       return a.lastName.localeCompare(b.lastName);
     });
 
@@ -89,6 +107,7 @@ commanderRouter.get(
       (s) => s.evalStatus === "COMPLETE" || s.evalStatus === "SUBMITTED" || s.evalStatus === "ACCEPTED",
     ).length;
     const overdueCount = formation.filter((s) => s.isOverdue).length;
+    const chainGapCount = formation.filter((s) => s.hasChainGap).length;
 
     res.json({
       formation,
@@ -97,6 +116,7 @@ commanderRouter.get(
         completeCount,
         completePercent: totalSoldiers > 0 ? Math.round((completeCount / totalSoldiers) * 100) : 0,
         overdueCount,
+        chainGapCount,
       },
     });
   }),

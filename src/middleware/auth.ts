@@ -6,57 +6,11 @@ import type { User } from "@prisma/client";
 
 /**
  * Development-only: in-memory users — no database required.
- * Usage: Authorization: Bearer dev:james.smith@army.mil:testpass
+ * Usage: Authorization: Bearer dev:<email>:testpass
+ *
+ * These match the DEV_PROFILES in frontend/src/lib/auth/dev-login.ts
  */
 const DEV_USERS: Record<string, User> = {
-  "dev:james.smith@army.mil:testpass": {
-    id: "seed-soldier-smith",
-    supabaseId: "seed-soldier-smith",
-    email: "james.smith@army.mil",
-    firstName: "James",
-    lastName: "Smith",
-    rank: "SGT",
-    roles: ["SOLDIER"],
-    unitId: "unit-1",
-    createdAt: new Date("2024-01-01"),
-    updatedAt: new Date("2024-01-01"),
-  } as unknown as User,
-  "dev:robert.jones@army.mil:testpass": {
-    id: "seed-rater-jones",
-    supabaseId: "seed-rater-jones",
-    email: "robert.jones@army.mil",
-    firstName: "Robert",
-    lastName: "Jones",
-    rank: "SSG",
-    roles: ["RATER"],
-    unitId: "unit-1",
-    createdAt: new Date("2024-01-01"),
-    updatedAt: new Date("2024-01-01"),
-  } as unknown as User,
-  "dev:david.davis@army.mil:testpass": {
-    id: "seed-sr-davis",
-    supabaseId: "seed-sr-davis",
-    email: "david.davis@army.mil",
-    firstName: "David",
-    lastName: "Davis",
-    rank: "SFC",
-    roles: ["SENIOR_RATER"],
-    unitId: "unit-1",
-    createdAt: new Date("2024-01-01"),
-    updatedAt: new Date("2024-01-01"),
-  } as unknown as User,
-  "dev:patricia.brown@army.mil:testpass": {
-    id: "seed-admin-brown",
-    supabaseId: "seed-admin-brown",
-    email: "patricia.brown@army.mil",
-    firstName: "Patricia",
-    lastName: "Brown",
-    rank: "SSG",
-    roles: ["ADMIN"],
-    unitId: "unit-1",
-    createdAt: new Date("2024-01-01"),
-    updatedAt: new Date("2024-01-01"),
-  } as unknown as User,
   // ── Delta Phase-1 personas (matched to dev-login.ts DEV_PROFILES) ──
   "dev:peter.smith@army.mil:testpass": {
     id: "dev-cpt-smith",
@@ -143,9 +97,11 @@ export async function requireAuth(
 
   const token = header.slice("Bearer ".length).trim();
 
-  // Dev mode: resolve user from in-memory map — no database required
+  // Dev mode: resolve identity from the in-memory credential map directly.
+  // Skip database lookup in dev — the seeded users are already in memory.
+  // This avoids unnecessary connection pool exhaustion on every request.
   if (!isProd && token in DEV_USERS) {
-    const user = DEV_USERS[token];
+    const user = DEV_USERS[token]!;
     req.authUserId = user.supabaseId;
     req.user = user;
     next();

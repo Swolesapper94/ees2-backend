@@ -17,6 +17,21 @@ prisma/*.db
 *.log
 npm-debug.log*
 
+# Local development artifacts
+temp-uploads/
+*.backup
+*.broken
+check-*.ts
+create-*.ts
+debug-*.ts
+fix-*.ts
+test-*.ts
+test-*.js
+test-*.sh
+verify-*.ts
+fetch-service-role.ts
+get-service-role-key.ts
+
 # OS
 .DS_Store
 

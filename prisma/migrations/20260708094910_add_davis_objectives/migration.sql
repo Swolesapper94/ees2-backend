@@ -1,0 +1,2 @@
+-- Placeholder migration (empty)
+-- This directory was created but not used

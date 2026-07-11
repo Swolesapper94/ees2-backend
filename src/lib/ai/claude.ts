@@ -1,14 +1,14 @@
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { env } from "@/config/env";
 
-let client: Anthropic | null = null;
+let client: OpenAI | null = null;
 
-export function getClaude(): Anthropic {
+export function getOpenAI(): OpenAI {
   if (!client) {
-    if (!env.anthropicApiKey) {
-      throw new Error("ANTHROPIC_API_KEY is not configured.");
+    if (!env.openaiApiKey) {
+      throw new Error("OPENAI_API_KEY is not configured.");
     }
-    client = new Anthropic({ apiKey: env.anthropicApiKey });
+    client = new OpenAI({ apiKey: env.openaiApiKey });
   }
   return client;
 }
@@ -20,22 +20,24 @@ export interface GenerateBulletsArgs {
 }
 
 /**
- * Calls Claude and parses a JSON array of bullet strings from the response.
+ * Calls OpenAI and parses a JSON array of bullet strings from the response.
  * The system prompt instructs the model to return ONLY a JSON array.
  */
 export async function generateBullets(
   args: GenerateBulletsArgs,
 ): Promise<string[]> {
-  const message = await getClaude().messages.create({
-    model: env.anthropicModel,
+  const message = await getOpenAI().chat.completions.create({
+    model: env.openaiModel,
     max_tokens: args.maxTokens ?? 1024,
-    system: args.systemPrompt,
-    messages: [{ role: "user", content: args.userPrompt }],
+    messages: [
+      { role: "system", content: args.systemPrompt },
+      { role: "user", content: args.userPrompt },
+    ],
   });
 
-  const text = message.content
-    .filter((block): block is Anthropic.TextBlock => block.type === "text")
-    .map((block) => block.text)
+  const text = message.choices
+    .filter((choice) => choice.message.content)
+    .map((choice) => choice.message.content || "")
     .join("")
     .trim();
 
@@ -43,7 +45,7 @@ export async function generateBullets(
 }
 
 /**
- * Calls Claude with a base64-encoded image (or PDF via URL) for vision extraction.
+ * Calls OpenAI with a base64-encoded image (or PDF via URL) for vision extraction.
  * Returns the raw text response.
  */
 export async function extractTextFromImage(args: {
@@ -51,37 +53,35 @@ export async function extractTextFromImage(args: {
   mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
   systemPrompt: string;
 }): Promise<string> {
-  const message = await getClaude().messages.create({
-    model: env.anthropicModel,
+  const message = await getOpenAI().chat.completions.create({
+    model: env.openaiModel,
     max_tokens: 4096,
-    system: args.systemPrompt,
     messages: [
+      { role: "system", content: args.systemPrompt },
       {
         role: "user",
         content: [
           {
-            type: "image",
-            source: {
-              type: "base64",
-              media_type: args.mediaType,
-              data: args.imageBase64,
+            type: "image_url",
+            image_url: {
+              url: `data:${args.mediaType};base64,${args.imageBase64}`,
             },
           },
           { type: "text", text: "Extract all text from this support form as instructed." },
-        ],
+        ] as Array<OpenAI.ChatCompletionContentPart>,
       },
     ],
   });
 
-  return message.content
-    .filter((block): block is Anthropic.TextBlock => block.type === "text")
-    .map((block) => block.text)
+  return message.choices
+    .filter((choice) => choice.message.content)
+    .map((choice) => choice.message.content || "")
     .join("")
     .trim();
 }
 
 /**
- * Calls Claude with a text prompt and expects a JSON response.
+ * Calls OpenAI with a text prompt and expects a JSON response.
  * Returns the parsed JSON or throws on parse failure.
  */
 export async function callClaudeForJson<T = unknown>(args: {
@@ -89,16 +89,18 @@ export async function callClaudeForJson<T = unknown>(args: {
   userPrompt: string;
   maxTokens?: number;
 }): Promise<T> {
-  const message = await getClaude().messages.create({
-    model: env.anthropicModel,
+  const message = await getOpenAI().chat.completions.create({
+    model: env.openaiModel,
     max_tokens: args.maxTokens ?? 2048,
-    system: args.systemPrompt,
-    messages: [{ role: "user", content: args.userPrompt }],
+    messages: [
+      { role: "system", content: args.systemPrompt },
+      { role: "user", content: args.userPrompt },
+    ],
   });
 
-  let text = message.content
-    .filter((block): block is Anthropic.TextBlock => block.type === "text")
-    .map((block) => block.text)
+  let text = message.choices
+    .filter((choice) => choice.message.content)
+    .map((choice) => choice.message.content || "")
     .join("")
     .trim();
 
@@ -116,6 +118,19 @@ export async function callClaudeForJson<T = unknown>(args: {
   }
 
   return JSON.parse(text) as T;
+}
+
+/**
+ * Defensive style filter: the system prompt tells Claude never to use em/en
+ * dashes, but LLM output isn't guaranteed to comply. This is the last line
+ * of defense before bullet text is persisted or shown to a rater.
+ */
+export function sanitizeBulletText(text: string): string {
+  return text
+    .replace(/\s*[\u2014\u2013]\s*/g, ", ") // em dash (—) / en dash (–) → comma
+    .replace(/,\s*,/g, ",") // collapse any doubled commas the substitution creates
+    .replace(/,\s*$/g, "") // trim a trailing comma left at the end of the bullet
+    .trim();
 }
 
 /**

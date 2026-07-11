@@ -4,7 +4,6 @@ import { unitsRouter } from "./units";
 import { ratingChainsRouter } from "./rating-chains";
 import { supportFormsRouter } from "./support-forms";
 import { evaluationsRouter } from "./evaluations";
-import { aiRouter } from "./ai";
 import { pdfRouter } from "./pdf";
 import { dashboardRouter } from "./dashboard";
 import { milestonesRouter } from "./milestones";
@@ -16,6 +15,7 @@ import { notificationsRouter } from "./notifications";
 import { supportRouter } from "./support";
 import { devRouter } from "./dev";
 import { supportFormUploadsRouter } from "./support-form-uploads";
+import { regulationsRouter } from "./regulations";
 
 export const apiRouter = Router();
 
@@ -29,7 +29,6 @@ apiRouter.use("/rating-chains", ratingChainsRouter);
 apiRouter.use("/support-forms", supportFormsRouter);
 apiRouter.use("/evaluations", evaluationsRouter);
 apiRouter.use("/evaluations/:evalId/comments", commentsRouter);
-apiRouter.use("/ai", aiRouter);
 apiRouter.use("/pdf", pdfRouter);
 apiRouter.use("/dashboard", dashboardRouter);
 apiRouter.use("/milestones", milestonesRouter);
@@ -40,3 +39,4 @@ apiRouter.use("/notifications", notificationsRouter);
 apiRouter.use("/support", supportRouter);
 apiRouter.use("/dev", devRouter);
 apiRouter.use("/support-form-uploads", supportFormUploadsRouter);
+apiRouter.use("/regulations", regulationsRouter);

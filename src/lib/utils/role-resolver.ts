@@ -1,15 +1,18 @@
 import { prisma } from "@/lib/prisma";
-import type { EvalFormType, Rank } from "@prisma/client";
+import type { EvalFormType, EvalCategory, Rank } from "@prisma/client";
 
-// ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────
 // Role & Form Type Resolution (Delta Sections 1 & 3.2)
-// ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────
 
 export type UserChainRole = "RATER" | "SENIOR_RATER";
 
 export interface ResolvedFormType {
   formType: EvalFormType;
-  evalType: "NCOER" | "OER";
+  // Reuses the Prisma `EvalCategory` enum (NCOER | OER) rather than a bespoke
+  // string-literal type, so SupportForm.evalCategory and this resolver stay
+  // in lockstep instead of two independently-typed "NCOER"/"OER" sources.
+  evalType: EvalCategory;
   /**
    * Drives whether the eval card shows the full builder or the
    * "Coming Soon" stub. Only NCOER forms have a builder in the MVP.

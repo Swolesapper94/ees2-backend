@@ -22,10 +22,18 @@ export interface EvalPdfData {
   unit: string;
   periodStart: string;
   periodEnd: string;
+  ratedMonths?: number;
+  dutyDescription?: string;
   raterName: string;
   seniorRaterName: string;
   seniorRaterRating: string | null;
   sections: EvalPdfSection[];
+  // MVP audit 5.15 — true when the evaluation's workflow status is not yet
+  // COMPLETE/SUBMITTED/ACCEPTED. Renders a diagonal "DRAFT" watermark across
+  // the page instead of silently producing an official-looking export for
+  // an evaluation that hasn't actually finished the review/signature
+  // process.
+  isDraftPreview: boolean;
 }
 
 // Army-standard section labels for the form
@@ -209,6 +217,20 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   footerText: { fontSize: 6, color: "#888" },
+  // MVP audit 5.15 — diagonal, low-opacity overlay marking an export of an
+  // evaluation that hasn't reached a final workflow state.
+  watermark: {
+    position: "absolute",
+    top: 320,
+    left: -120,
+    width: 700,
+    textAlign: "center",
+    fontSize: 64,
+    fontWeight: 700,
+    color: "#c0392b",
+    opacity: 0.18,
+    transform: "rotate(-38deg)",
+  },
 });
 
 export function NCOERTemplate({ data }: { data: EvalPdfData }): React.ReactElement {
@@ -222,6 +244,11 @@ export function NCOERTemplate({ data }: { data: EvalPdfData }): React.ReactEleme
   return (
     <Document>
       <Page size="LETTER" style={styles.page}>
+        {data.isDraftPreview ? (
+          <Text style={styles.watermark} fixed>
+            DRAFT — NOT FOR OFFICIAL USE
+          </Text>
+        ) : null}
 
         {/* ── Form Header ── */}
         <View style={styles.formHeader}>

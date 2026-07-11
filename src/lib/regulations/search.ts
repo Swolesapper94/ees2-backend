@@ -3,6 +3,10 @@
  *
  * Given a user query, embeds it and returns the top-K most semantically
  * similar regulation chunks from the pgvector table.
+ *
+ * NOTE: If the embedding column does not exist in the database, this
+ * gracefully returns an empty array. The database migration must be run
+ * to enable vector search (see prisma/migrations).
  */
 
 import { OpenAI } from "openai";
@@ -23,38 +27,56 @@ export interface RegChunk {
 /**
  * Returns the top-K most relevant regulation chunks for a given query.
  * Uses cosine similarity (<=> operator) on the pgvector embedding column.
+ *
+ * If the embedding column doesn't exist, returns empty array (graceful degradation).
  */
 export async function searchRegulations(
   query: string,
   topK = 4,
 ): Promise<RegChunk[]> {
-  // Generate embedding for the user's query
-  const { data } = await openai.embeddings.create({
-    model: "text-embedding-3-small",
-    input: query.slice(0, 1000), // truncate to avoid token limit
-  });
+  try {
+    // Generate embedding for the user's query
+    const { data } = await openai.embeddings.create({
+      model: "text-embedding-3-small",
+      input: query.slice(0, 1000), // truncate to avoid token limit
+    });
 
-  const vector = `[${data[0].embedding.join(",")}]`;
+    const embedding = data[0]?.embedding;
+    if (!embedding) return [];
+    const vector = `[${embedding.join(",")}]`;
 
-  // cosine similarity search — <=> is pgvector's cosine distance operator
-  const rows = await prisma.$queryRawUnsafe<RegChunk[]>(
-    `SELECT
-       id,
-       "docTitle",
-       section,
-       heading,
-       content,
-       "pageStart",
-       1 - (embedding <=> $1::vector) AS similarity
-     FROM regulation_chunks
-     WHERE embedding IS NOT NULL
-     ORDER BY embedding <=> $1::vector
-     LIMIT $2`,
-    vector,
-    topK,
-  );
+    // cosine similarity search — <=> is pgvector's cosine distance operator
+    const rows = await prisma.$queryRawUnsafe<RegChunk[]>(
+      `SELECT
+         id,
+         "docTitle",
+         section,
+         heading,
+         content,
+         "pageStart",
+         1 - (embedding <=> $1::vector) AS similarity
+       FROM regulation_chunks
+       WHERE embedding IS NOT NULL
+       ORDER BY embedding <=> $1::vector
+       LIMIT $2`,
+      vector,
+      topK,
+    );
 
-  return rows;
+    return rows;
+  } catch (error: any) {
+    // Graceful degradation: if embedding column doesn't exist, log and return empty
+    if (error?.meta?.code === "42703" && error?.meta?.message?.includes("embedding")) {
+      console.warn(
+        "[searchRegulations] Embedding column not found. Vector search unavailable. " +
+        "Run `npx prisma migrate deploy` to enable this feature.",
+      );
+      return [];
+    }
+
+    // Re-throw other errors
+    throw error;
+  }
 }
 
 /**

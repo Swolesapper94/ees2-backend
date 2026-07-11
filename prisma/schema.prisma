@@ -14,19 +14,19 @@ datasource db {
 
 enum Rank {
   // Enlisted
-  PVT             // E1
-  PV2             // E2
-  PFC             // E3
-  SPC             // E4
-  CPL             // E4
-  SGT             // E5 — DA 2166-9-1
-  SSG             // E6 — DA 2166-9-2
-  SFC             // E7 — DA 2166-9-2
-  MSG             // E8 — DA 2166-9-2
-  FIRST_SERGEANT  // E8 — DA 2166-9-2
-  SGM             // E9 — DA 2166-9-3
-  CSM             // E9 — DA 2166-9-3
-  SMA             // E9 special
+  PVT // E1
+  PV2 // E2
+  PFC // E3
+  SPC // E4
+  CPL // E4
+  SGT // E5 — DA 2166-9-1
+  SSG // E6 — DA 2166-9-2
+  SFC // E7 — DA 2166-9-2
+  MSG // E8 — DA 2166-9-2
+  FIRST_SERGEANT // E8 — DA 2166-9-2
+  SGM // E9 — DA 2166-9-3
+  CSM // E9 — DA 2166-9-3
+  SMA // E9 special
   // Warrant Officers
   WO1
   CW2
@@ -44,31 +44,31 @@ enum Rank {
   MG
   LTG
   GEN
-  GA              // O11 — General of the Army (wartime only)
+  GA // O11 — General of the Army (wartime only)
 }
 
 enum UserRole {
-  SOLDIER        // Can log support form entries, view own eval
-  RATER          // Writes Part III + Part IV rater sections
-  SENIOR_RATER   // Writes Part V senior rater section
-  REVIEWER       // Supplementary reviewer (when required)
-  COMMANDER      // Grants Commander's Access sidebar + dashboard (Section 20)
-  ADMIN          // Unit admin: manage users, chains, units
+  SOLDIER // Can log support form entries, view own eval
+  RATER // Writes Part III + Part IV rater sections
+  SENIOR_RATER // Writes Part V senior rater section
+  REVIEWER // Supplementary reviewer (when required)
+  COMMANDER // Grants Commander's Access sidebar + dashboard (Section 20)
+  ADMIN // Unit admin: manage users, chains, units
 }
 
 enum EvalFormType {
   // ── NCOERs — Full builder in MVP ──────────────────────────────────
-  NCOER_9_1      // DA 2166-9-1 — SGT (E5)            Binary scale
-  NCOER_9_2      // DA 2166-9-2 — SSG–1SG/MSG (E6–E8) 4-level scale
-  NCOER_9_3      // DA 2166-9-3 — CSM/SGM/SMA (E9)    4-level scale
+  NCOER_9_1 // DA 2166-9-1 — SGT (E5)            Binary scale
+  NCOER_9_2 // DA 2166-9-2 — SSG–1SG/MSG (E6–E8) 4-level scale
+  NCOER_9_3 // DA 2166-9-3 — CSM/SGM/SMA (E9)    4-level scale
 
   // ── OERs — Dashboard + support form only for MVP ──────────────────
-  OER_67_10_1    // DA 67-10-1   — 2LT, 1LT
-  OER_67_10_1A   // DA 67-10-1A  — WO1, CW2
-  OER_67_10_2    // DA 67-10-2   — CPT
-  OER_67_10_2A   // DA 67-10-2A  — CW3, CW4, CW5
-  OER_67_10_3    // DA 67-10-3   — MAJ, LTC, COL
-  OER_67_10_4    // DA 67-10-4   — BG and above
+  OER_67_10_1 // DA 67-10-1   — 2LT, 1LT
+  OER_67_10_1A // DA 67-10-1A  — WO1, CW2
+  OER_67_10_2 // DA 67-10-2   — CPT
+  OER_67_10_2A // DA 67-10-2A  — CW3, CW4, CW5
+  OER_67_10_3 // DA 67-10-3   — MAJ, LTC, COL
+  OER_67_10_4 // DA 67-10-4   — BG and above
 }
 
 // ── RATING SCALES ─────────────────────────────────────────────────
@@ -96,37 +96,51 @@ enum SeniorRaterRating {
 
 // ── EVALUATION STATUS ─────────────────────────────────────────────
 enum EvalStatus {
-  DRAFT                          // Eval created, rater hasn't started any section
-  RATER_IN_PROGRESS              // Rater has completed ≥1 section, still working
-  PENDING_SENIOR_RATER           // Rater done, SR working their section
-  PENDING_SOLDIER_ACK            // Awaiting rated soldier acknowledgment
-  PENDING_SUPPLEMENTARY_REVIEW   // Conditional — rater is 1LT only
-  COMPLETE                       // All required signatures collected
-  SUBMITTED                      // Forwarded to HRC for official processing
-  ACCEPTED                       // Terminal success — in official record
-  RETURNED                       // Correction required
+  DRAFT // Eval created, rater hasn't started any section
+  RATER_IN_PROGRESS // Rater has completed ≥1 section, still working
+  PENDING_SENIOR_RATER // Rater done, SR working their section
+  PENDING_SOLDIER_ACK // Awaiting rated soldier acknowledgment
+  PENDING_SUPPLEMENTARY_REVIEW // Conditional — rater is 1LT only
+  COMPLETE // All required signatures collected
+  SUBMITTED // Forwarded to HRC for official processing
+  ACCEPTED // Terminal success — in official record
+  RETURNED // Correction required
 }
 
 // ── SECTION KEYS ─────────────────────────────────────────────────
 // Maps to Part IV sections on the NCOER and support form
 enum SectionKey {
-  CHARACTER    // Army Values, Empathy, Warrior Ethos, Discipline
-  PRESENCE     // Bearing, Fitness, Confidence, Resilience
-  INTELLECT    // Mental Agility, Judgment, Innovation, Tact, Expertise
-  LEADS        // Leads Others, Trust, Influence, Example, Communicates
-  DEVELOPS     // Environment, Esprit, Prepares Self, Develops Others, Stewards
-  ACHIEVES     // Gets Results
+  CHARACTER // Army Values, Empathy, Warrior Ethos, Discipline
+  PRESENCE // Bearing, Fitness, Confidence, Resilience
+  INTELLECT // Mental Agility, Judgment, Innovation, Tact, Expertise
+  LEADS // Leads Others, Trust, Influence, Example, Communicates
+  DEVELOPS // Environment, Esprit, Prepares Self, Develops Others, Stewards
+  ACHIEVES // Gets Results
   // Not a Part IV section — separate forms:
-  RATER_OVERALL        // Part IV rater overall performance comments
+  RATER_OVERALL // Part IV rater overall performance comments
   SENIOR_RATER_OVERALL // Part V senior rater comments + box
-  SOLDIER_COMMENTS     // Rated soldier's acknowledgment comments
+  SOLDIER_COMMENTS // Rated soldier's acknowledgment comments
 }
 
 // ── SUPPORT FORM ENTRY TYPES ──────────────────────────────────────
 // Matches actual DA 2166-9-1A Part V structure
 enum EntryType {
-  OBJECTIVE        // "Indicate major performance objectives"
-  ACCOMPLISHMENT   // "List significant contributions and accomplishments"
+  OBJECTIVE // "Indicate major performance objectives"
+  ACCOMPLISHMENT // "List significant contributions and accomplishments"
+}
+
+// ── RATER CONFIRMATION ────────────────────────────────────────────
+// Rater-owned review status for a soldier-logged entry. Distinct from the
+// soldier's own flaggedByServiceMember disclosure on an artifact — this is
+// the rater explicitly indicating they reviewed the entry and either trust
+// it as context, want clarification, or are choosing not to rely on it.
+// Confirming does NOT transform a self-uploaded artifact into an
+// authoritative record — it only reflects rater review.
+enum EntryConfirmationStatus {
+  UNREVIEWED // Default — rater has not looked at this entry yet
+  CONFIRMED // Rater reviewed and trusts this as usable context
+  NEEDS_CLARIFICATION // Rater has a question — see clarificationNote
+  NOT_USED // Rater reviewed but chose not to rely on this entry
 }
 
 enum SignatureStatus {
@@ -138,21 +152,21 @@ enum SignatureStatus {
 
 // ── SUPPORT FORM UPLOAD PIPELINE ──────────────────────────────────
 enum SupportFormUploadStatus {
-  PENDING_EXTRACT   // File received, queued for Stage 1 vision
-  EXTRACTING        // Stage 1 in progress
-  PENDING_PARSE     // Stage 1 done, queued for Stage 2 parse
-  PARSING           // Stage 2 in progress
-  PENDING_BULLETS   // Stage 2 done, queued for Stage 3 generation
-  GENERATING        // Stage 3 in progress
-  COMPLETE          // All 3 stages done
-  FAILED            // Any stage errored
+  PENDING_EXTRACT // File received, queued for Stage 1 vision
+  EXTRACTING // Stage 1 in progress
+  PENDING_PARSE // Stage 1 done, queued for Stage 2 parse
+  PARSING // Stage 2 in progress
+  PENDING_BULLETS // Stage 2 done, queued for Stage 3 generation
+  GENERATING // Stage 3 in progress
+  COMPLETE // All 3 stages done
+  FAILED // Any stage errored
 }
 
 enum AIBulletStatus {
-  PENDING_REVIEW  // Not yet acted on by rater
-  ACCEPTED        // Copied as-is to final bullets
-  EDITED          // Modified before copying
-  REJECTED        // Dismissed
+  PENDING_REVIEW // Not yet acted on by rater
+  ACCEPTED // Copied as-is to final bullets
+  EDITED // Modified before copying
+  REJECTED // Dismissed
 }
 
 enum AIBulletConfidence {
@@ -163,13 +177,32 @@ enum AIBulletConfidence {
 
 // ── SIGNATURE STALE REASON ────────────────────────────────────────
 enum StaleReason {
-  FIELD_EDIT         // Content field changed post-signature
-  ADMIN_CORRECTION   // Admin-initiated correction
+  FIELD_EDIT // Content field changed post-signature
+  ADMIN_CORRECTION // Admin-initiated correction
 }
 
 enum CounselingType {
-  INITIAL    // Within 30 days of rating period start (AR 623-3 requirement)
-  QUARTERLY  // Quarterly follow-up (AR 623-3 requirement)
+  INITIAL // Within 30 days of rating period start (AR 623-3 requirement)
+  QUARTERLY // Quarterly follow-up (AR 623-3 requirement)
+}
+
+// ── SUPPORT FORM ENTRY ARTIFACTS ──────────────────────────────────
+// Proof soldiers attach to a support form entry: certificates, score
+// sheets, photos, etc. Captioned once via Claude vision at upload time
+// (see artifact-captioning.ts); the caption is reused as context for every
+// bullet-generation call rather than re-sending images each time.
+enum ArtifactType {
+  CERTIFICATE // Award/certificate of completion, AER, school completion
+  SCORE_SHEET // ACFT score sheet, range card, test result
+  PHOTO // Photo of soldier performing a task, with team/squad, etc.
+  DOCUMENT // Other paper record not covered above
+  OTHER // Catch-all
+}
+
+enum ArtifactCaptionStatus {
+  PENDING
+  COMPLETE
+  FAILED
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -178,8 +211,8 @@ enum CounselingType {
 
 model Unit {
   id        String   @id @default(cuid())
-  name      String                          // e.g. "C Co, 1-505 PIR"
-  uic       String?  @unique                // Unit Identification Code
+  name      String // e.g. "C Co, 1-505 PIR"
+  uic       String?  @unique // Unit Identification Code
   parentId  String?
   parent    Unit?    @relation("UnitHierarchy", fields: [parentId], references: [id])
   children  Unit[]   @relation("UnitHierarchy")
@@ -195,34 +228,37 @@ model Unit {
 // ─────────────────────────────────────────────────────────────────
 
 model User {
-  id          String     @id @default(cuid())
-  supabaseId  String     @unique
-  email       String     @unique
-  firstName   String
-  lastName    String
-  rank        Rank
-  mos         String                        // e.g. "11B", "25U"
-  roles       UserRole[]
-  unitId      String?
-  unit        Unit?      @relation(fields: [unitId], references: [id])
-  dodid       String?    @unique            // Future CAC integration
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id                String     @id @default(cuid())
+  supabaseId        String     @unique
+  email             String     @unique
+  firstName         String
+  lastName          String
+  rank              Rank
+  mos               String // e.g. "11B", "25U"
+  roles             UserRole[]
+  profilePictureUrl String? // URL to user's profile picture
+  notificationPreferences Json? // per-NotificationCategory boolean overrides; a missing key defaults to enabled
+  unitId            String?
+  unit              Unit?      @relation(fields: [unitId], references: [id])
+  dodid             String?    @unique // Future CAC integration
+  lastLoginAt       DateTime?  // Updated when the authenticated user opens their dashboard
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 
   // Relations
-  supportForms             SupportForm[]    @relation("SoldierSupportForms")
-  raterOnChains            RatingChain[]    @relation("RaterChains")
-  seniorRaterOnChains      RatingChain[]    @relation("SeniorRaterChains")
-  reviewerOnChains         RatingChain[]    @relation("ReviewerChains")
-  ratedOnChains            RatingChain[]    @relation("RatedSoldierChains")
-  signatures               Signature[]
-  notifications            Notification[]
-  auditLogs                AuditLog[]
-  seniorRaterProfile       SeniorRaterProfile?
-  authoredComments         EvalComment[]    @relation("AuthoredComments")
-  delegateAppointments     Delegate[]       @relation("DelegateAppointments")
-  delegatedAccess          Delegate[]       @relation("DelegatedAccess")
-  uploadedForms            SupportFormUpload[] @relation("UploadedForms")
+  supportForms         SupportForm[]       @relation("SoldierSupportForms")
+  raterOnChains        RatingChain[]       @relation("RaterChains")
+  seniorRaterOnChains  RatingChain[]       @relation("SeniorRaterChains")
+  reviewerOnChains     RatingChain[]       @relation("ReviewerChains")
+  ratedOnChains        RatingChain[]       @relation("RatedSoldierChains")
+  signatures           Signature[]
+  notifications        Notification[]
+  auditLogs            AuditLog[]
+  seniorRaterProfile   SeniorRaterProfile?
+  authoredComments     EvalComment[]       @relation("AuthoredComments")
+  delegateAppointments Delegate[]          @relation("DelegateAppointments")
+  delegatedAccess      Delegate[]          @relation("DelegatedAccess")
+  uploadedForms        SupportFormUpload[] @relation("UploadedForms")
 
   @@map("users")
 }
@@ -231,24 +267,33 @@ model User {
 // RATING CHAINS
 // ─────────────────────────────────────────────────────────────────
 
-model RatingChain {
-  id              String    @id @default(cuid())
-  ratedSoldierId  String
-  raterId         String
-  seniorRaterId   String
-  reviewerId      String?                   // Required per AR 623-3 for certain grades
-  effectiveDate   DateTime
-  endDate         DateTime?
-  isActive        Boolean   @default(true)
+// ── EVAL CATEGORY ─────────────────────────────────────────────────
+// Broad NCO vs Officer split — derived from resolveFormType(rank).
+// Distinct from EvalFormType (the specific grade-plate form, e.g. NCOER_9_2).
+enum EvalCategory {
+  NCOER
+  OER
+}
 
-  ratedSoldier    User      @relation("RatedSoldierChains", fields: [ratedSoldierId], references: [id])
-  rater           User      @relation("RaterChains", fields: [raterId], references: [id])
-  seniorRater     User      @relation("SeniorRaterChains", fields: [seniorRaterId], references: [id])
-  reviewer        User?     @relation("ReviewerChains", fields: [reviewerId], references: [id])
-  evaluations     Evaluation[]
+model RatingChain {
+  id             String    @id @default(cuid())
+  ratedSoldierId String
+  raterId        String
+  seniorRaterId  String
+  reviewerId     String? // Required per AR 623-3 for certain grades
+  effectiveDate  DateTime
+  endDate        DateTime?
+  isActive       Boolean   @default(true)
+
+  ratedSoldier       User                @relation("RatedSoldierChains", fields: [ratedSoldierId], references: [id])
+  rater              User                @relation("RaterChains", fields: [raterId], references: [id])
+  seniorRater        User                @relation("SeniorRaterChains", fields: [seniorRaterId], references: [id])
+  reviewer           User?               @relation("ReviewerChains", fields: [reviewerId], references: [id])
+  evaluations        Evaluation[]
   counselingSessions CounselingSession[]
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  supportForms       SupportForm[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 
   @@map("rating_chains")
 }
@@ -260,16 +305,16 @@ model RatingChain {
 // ─────────────────────────────────────────────────────────────────
 
 model CounselingSession {
-  id             String          @id @default(cuid())
-  ratingChainId  String
-  ratingChain    RatingChain     @relation(fields: [ratingChainId], references: [id])
-  type           CounselingType
-  sessionDate    DateTime
-  notes          String?         // Summary comments for inclusion in NCOER
-  raterInitials  String?
+  id              String         @id @default(cuid())
+  ratingChainId   String
+  ratingChain     RatingChain    @relation(fields: [ratingChainId], references: [id])
+  type            CounselingType
+  sessionDate     DateTime
+  notes           String? // Summary comments for inclusion in NCOER
+  raterInitials   String?
   soldierInitials String?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   @@map("counseling_sessions")
 }
@@ -282,16 +327,38 @@ model SupportForm {
   id                String             @id @default(cuid())
   soldierId         String
   soldier           User               @relation("SoldierSupportForms", fields: [soldierId], references: [id])
+  // Anchors this support form to a specific rater/SR assignment rather than an
+  // implicit "current period" string. A RatingChain can outlive multiple annual
+  // cycles, so uniqueness is enforced at the app layer (see completeness.ts /
+  // support-forms.ts POST handler): at most one support form per chain that is
+  // NOT yet "consumed" by an Evaluation (Evaluation.supportFormId links them).
+  // Nullable for safe migration of existing seeded rows; new rows always set it.
+  ratingChainId     String?
+  ratingChain       RatingChain?       @relation(fields: [ratingChainId], references: [id])
+  // Snapshot of resolveFormType(soldier.rank).evalType at creation time.
+  // Decides which Part I/III admin fields apply and which PDF layout renders.
+  // Nullable at the DB layer only to keep this migration additive/non-breaking
+  // against existing seeded rows; every new row sets it (enforced by Zod in
+  // the POST route, not left as an app-level "maybe" the way the field name
+  // might suggest).
+  evalCategory      EvalCategory?
   ratingPeriodStart DateTime
   ratingPeriodEnd   DateTime?
   dutyTitle         String
-  dutyMosc          String
+  // Nullable: NCO forms require it (validated in the route), Officer forms
+  // don't carry a MOSC field at all — Part III is a single narrative field.
+  dutyMosc          String?
   dailyDutiesScope  String?
   areasOfEmphasis   String?
   appointedDuties   String?
+  // Part I — SSD/NCOES requirement met for next grade (NCO forms only)
+  ssdNcoesMet       Boolean?
   // Part IV: Soldier's own goals and expectations for the period
   soldierGoals      String?
   isActive          Boolean            @default(true)
+  // Set when the guided flow's Finalize step passes the hard-gate completeness
+  // check. Presence of this timestamp is what unlocks eval initiation.
+  completedAt       DateTime?
   entries           SupportFormEntry[]
   evaluations       Evaluation[]
   createdAt         DateTime           @default(now())
@@ -301,29 +368,67 @@ model SupportForm {
 }
 
 model SupportFormEntry {
-  id             String        @id @default(cuid())
-  supportFormId  String
-  supportForm    SupportForm   @relation(fields: [supportFormId], references: [id])
-  entryDate      DateTime      @default(now())
+  id            String      @id @default(cuid())
+  supportFormId String
+  supportForm   SupportForm @relation(fields: [supportFormId], references: [id])
+  entryDate     DateTime    @default(now())
 
   // Maps to Part V of DA 2166-9-1A
   // Each section has both objectives and accomplishments
-  section        SectionKey    // CHARACTER | PRESENCE | INTELLECT | LEADS | DEVELOPS | ACHIEVES
-  entryType      EntryType     // OBJECTIVE | ACCOMPLISHMENT
+  section   SectionKey // CHARACTER | PRESENCE | INTELLECT | LEADS | DEVELOPS | ACHIEVES
+  entryType EntryType // OBJECTIVE | ACCOMPLISHMENT
 
-  rawText        String        // What the soldier or rater wrote
-  tags           String[]      // Free-form tags for filtering
-  isHighlight    Boolean       @default(false)  // Flagged as strongest entry for this period
-  counseled      Boolean       @default(false)  // Was this discussed in a counseling session?
-  counseledDate  DateTime?
+  rawText       String // What the soldier or rater wrote
+  tags          String[] // Free-form tags for filtering
+  isHighlight   Boolean   @default(false) // Flagged as strongest entry for this period
+  counseled     Boolean   @default(false) // Was this discussed in a counseling session?
+  counseledDate DateTime?
 
   // AI usage tracking
-  usedInEvalId   String?       // Which eval used this entry, if any
+  usedInEvalId String? // Which eval used this entry, if any
 
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  // Rater confirmation (5.4) — rater-owned review status, timestamped + attributed
+  confirmationStatus EntryConfirmationStatus @default(UNREVIEWED)
+  confirmedById      String?
+  confirmedAt        DateTime?
+  clarificationNote  String? // Short note when status = NEEDS_CLARIFICATION
+
+  artifacts SupportFormEntryArtifact[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("support_form_entries")
+}
+
+// Proof attached to a SupportFormEntry — see ArtifactType above.
+model SupportFormEntryArtifact {
+  id      String           @id @default(cuid())
+  entryId String
+  entry   SupportFormEntry @relation(fields: [entryId], references: [id])
+
+  type     ArtifactType
+  fileUrl  String // Supabase Storage URL
+  fileType String // "image" | "pdf"
+
+  // Populated by generateArtifactCaption() — a short factual description of
+  // what the artifact shows/proves, fed into bullet-generation prompts.
+  aiCaption       String?
+  aiCaptionStatus ArtifactCaptionStatus @default(PENDING)
+  aiCaptionError  String?
+
+  // Soldier self-attestation. We do not have an automated iPERMS integration
+  // (external DoD system, no public API available) — this is the practical
+  // substitute: the soldier acknowledges the document may not yet be
+  // reflected in iPERMS or flags a discrepancy, which surfaces to the
+  // rater/senior rater as a visible flag rather than a silent claim.
+  flaggedByServiceMember Boolean @default(false)
+  flagNote               String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("support_form_entry_artifacts")
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -331,32 +436,32 @@ model SupportFormEntry {
 // ─────────────────────────────────────────────────────────────────
 
 model Evaluation {
-  id                    String       @id @default(cuid())
-  ratingChainId         String
-  ratingChain           RatingChain  @relation(fields: [ratingChainId], references: [id])
-  supportFormId         String?
-  supportForm           SupportForm? @relation(fields: [supportFormId], references: [id])
-  formType              EvalFormType
-  status                EvalStatus   @default(DRAFT)
+  id                          String       @id @default(cuid())
+  ratingChainId               String
+  ratingChain                 RatingChain  @relation(fields: [ratingChainId], references: [id])
+  supportFormId               String?
+  supportForm                 SupportForm? @relation(fields: [supportFormId], references: [id])
+  formType                    EvalFormType
+  status                      EvalStatus   @default(DRAFT)
   // Supplementary review (Section 2) — set true at creation when rater.rank === FIRST_LT
-  requiresSupplementaryReview Boolean @default(false)
+  requiresSupplementaryReview Boolean      @default(false)
 
   // Part I — Administrative Data (exact DA form field names)
-  periodStart           DateTime
-  periodEnd             DateTime
-  ratedMonths           Int
-  nonRatedMonths        Int          @default(0)
-  nonRatedCodes         String?
-  reasonForSubmission   String       // Annual, Change of Rater, Relief for Cause, etc.
-  statusCode            String?      // e.g. "00" Active Duty
-  numberOfEnclosures    Int          @default(0)
+  periodStart         DateTime
+  periodEnd           DateTime
+  ratedMonths         Int
+  nonRatedMonths      Int      @default(0)
+  nonRatedCodes       String?
+  reasonForSubmission String // Annual, Change of Rater, Relief for Cause, etc.
+  statusCode          String? // e.g. "00" Active Duty
+  numberOfEnclosures  Int      @default(0)
 
   // Part III — Duty Description (rater completes)
-  principalDutyTitle    String?
-  dutyMosc              String?
-  dailyDutiesScope      String?      // People, equipment, facilities, dollars
+  principalDutyTitle     String?
+  dutyMosc               String?
+  dailyDutiesScope       String? // People, equipment, facilities, dollars
   areasOfSpecialEmphasis String?
-  appointedDuties       String?
+  appointedDuties        String?
 
   // Part V — Senior Rater succession planning
   // AR 623-3: two successive assignments + one broadening (3-5 years)
@@ -365,32 +470,31 @@ model Evaluation {
   broadeningAssignment  String?
 
   // Senior rater overall
-  seniorRaterRating     SeniorRaterRating?
+  seniorRaterRating SeniorRaterRating?
 
   // APFT/ACFT data (Part IVa/IVb on DA 2166-9-1)
-  acftPassFail          String?      // "Pass" | "Fail" | "Profile"
-  acftDate              DateTime?
-  heightInches          Int?
-  weightLbs             Int?
-  withinWeightStandard  Boolean?
+  acftPassFail         String? // "Pass" | "Fail" | "Profile"
+  acftDate             DateTime?
+  heightInches         Int?
+  weightLbs            Int?
+  withinWeightStandard Boolean?
 
   // HRC processing timestamps — set by route handlers on status transitions
-  submittedAt           DateTime?    // Set when status → SUBMITTED
-  acceptedAt            DateTime?    // Set when status → ACCEPTED
+  submittedAt DateTime? // Set when status → SUBMITTED
+  acceptedAt  DateTime? // Set when status → ACCEPTED
 
-  sections              EvalSection[]
-  signatures            Signature[]
-  aiGenerations         AiGeneration[]
-  auditLogs             AuditLog[]
-  notifications         Notification[]
-  milestones            EvalMilestone[]
-  comments              EvalComment[]
-  supportFormUploads    SupportFormUpload[]
-  aiBulletSuggestions   AIBulletSuggestion[]
-  returns               EvaluationReturn[]
+  sections            EvalSection[]
+  signatures          Signature[]
+  auditLogs           AuditLog[]
+  notifications       Notification[]
+  milestones          EvalMilestone[]
+  comments            EvalComment[]
+  supportFormUploads  SupportFormUpload[]
+  aiBulletSuggestions AIBulletSuggestion[]
+  returns             EvaluationReturn[]
 
-  createdAt             DateTime     @default(now())
-  updatedAt             DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("evaluations")
 }
@@ -401,22 +505,22 @@ model Evaluation {
 // ─────────────────────────────────────────────────────────────────
 
 enum ReturnReason {
-  ADMIN_ERROR          // Incorrect dates, missing data, wrong form
-  PROHIBITED_LANGUAGE  // Superlatives, prohibited references
-  MISSING_SIGNATURE    // Out-of-sequence or absent signatures
-  RATING_PERIOD_ERROR  // Overlap, wrong order, assignment mismatch
-  OTHER                // Catch-all for unlisted reasons
+  ADMIN_ERROR // Incorrect dates, missing data, wrong form
+  PROHIBITED_LANGUAGE // Superlatives, prohibited references
+  MISSING_SIGNATURE // Out-of-sequence or absent signatures
+  RATING_PERIOD_ERROR // Overlap, wrong order, assignment mismatch
+  OTHER // Catch-all for unlisted reasons
 }
 
 model EvaluationReturn {
-  id             String        @id @default(cuid())
-  evaluationId   String
-  evaluation     Evaluation    @relation(fields: [evaluationId], references: [id])
-  returnReason   ReturnReason
-  returnedAt     DateTime      @default(now())
-  notes          String?       // Free-text notes about the specific return
-  resolvedAt     DateTime?     // When the correction was resubmitted
-  createdAt      DateTime      @default(now())
+  id           String       @id @default(cuid())
+  evaluationId String
+  evaluation   Evaluation   @relation(fields: [evaluationId], references: [id])
+  returnReason ReturnReason
+  returnedAt   DateTime     @default(now())
+  notes        String? // Free-text notes about the specific return
+  resolvedAt   DateTime? // When the correction was resubmitted
+  createdAt    DateTime     @default(now())
 
   @@map("evaluation_returns")
 }
@@ -430,33 +534,39 @@ model EvaluationReturn {
 // ─────────────────────────────────────────────────────────────────
 
 model EvalSection {
-  id               String           @id @default(cuid())
-  evaluationId     String
-  evaluation       Evaluation       @relation(fields: [evaluationId], references: [id])
-  section          SectionKey
+  id           String     @id @default(cuid())
+  evaluationId String
+  evaluation   Evaluation @relation(fields: [evaluationId], references: [id])
+  section      SectionKey
 
   // Rating box — only one is used per form type
-  ratingBinary     RatingBinary?    // E5 (SGT) forms only
-  ratingFourLevel  RatingFourLevel? // E6+ forms only
+  ratingBinary    RatingBinary? // E5 (SGT) forms only
+  ratingFourLevel RatingFourLevel? // E6+ forms only
 
   // Bullet pipeline
   // stagingBullets = AI suggestions in the staging panel (not yet on the form)
   // finalBullets   = bullets accepted and moved onto the form
-  stagingBullets   String[]         @default([])
-  finalBullets     String[]         @default([])
+  stagingBullets String[] @default([])
+  finalBullets   String[] @default([])
 
   // Anti-autopilot tracking
   // Tracks which final bullets originated from AI vs. were human-written
-  bulletSources    Json?
+  bulletSources Json?
   // e.g. { "0": "AI_MODIFIED", "1": "HUMAN", "2": "AI_UNMODIFIED" }
   // "AI_UNMODIFIED" triggers the soft-gate prompt before submission
 
-  isComplete       Boolean          @default(false)
-  completedAt      DateTime?
-  completedById    String?
+  // Provenance chain (MVP audit 5.9): final bullet index -> originating
+  // AIBulletSuggestion.id + its sourceEntryIds + its immutable sourceSnapshot.
+  // Only set for AI-sourced bullets (HUMAN bullets have no entry here).
+  // e.g. { "2": { "suggestionId": "...", "sourceEntryIds": [...], "sourceSnapshot": [...] } }
+  bulletProvenance Json?
 
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  isComplete    Boolean   @default(false)
+  completedAt   DateTime?
+  completedById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([evaluationId, section])
   @@map("eval_sections")
@@ -469,14 +579,14 @@ model EvalSection {
 // ─────────────────────────────────────────────────────────────────
 
 model SeniorRaterProfile {
-  id              String   @id @default(cuid())
-  userId          String   @unique
-  user            User     @relation(fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
 
   // Counts by grade (JSON for flexibility across form types)
   // e.g. { "SGT": { "MQ": 2, "HQ": 5, "Q": 3, "NQ": 0 } }
-  profileData     Json     @default("{}")
-  lastUpdated     DateTime @default(now())
+  profileData Json     @default("{}")
+  lastUpdated DateTime @default(now())
 
   @@map("senior_rater_profiles")
 }
@@ -488,72 +598,39 @@ model SeniorRaterProfile {
 // ─────────────────────────────────────────────────────────────────
 
 model Signature {
-  id             String          @id @default(cuid())
-  evaluationId   String
-  evaluation     Evaluation      @relation(fields: [evaluationId], references: [id])
-  userId         String
-  user           User            @relation(fields: [userId], references: [id])
-  role           UserRole
-  status         SignatureStatus @default(PENDING)
-  signedAt       DateTime?
-  declineReason  String?
-  notifiedAt     DateTime?
+  id            String          @id @default(cuid())
+  evaluationId  String
+  evaluation    Evaluation      @relation(fields: [evaluationId], references: [id])
+  userId        String
+  user          User            @relation(fields: [userId], references: [id])
+  role          UserRole
+  status        SignatureStatus @default(PENDING)
+  signedAt      DateTime?
+  declineReason String?
+  notifiedAt    DateTime?
 
   // Consent mechanism (Section 10)
-  nameConfirmation String?       // User types their own name to confirm
-  ipAddress        String?       // Captured server-side at signing
-  userAgent        String?       // Browser info
+  nameConfirmation String? // User types their own name to confirm
+  ipAddress        String? // Captured server-side at signing
+  userAgent        String? // Browser info
 
   // Future CAC/PKI (stubbed — not implemented for MVP)
-  cacCertSerial    String?
-  pkiTokenHash     String?
+  cacCertSerial String?
+  pkiTokenHash  String?
 
   // Content hash — SHA-256 of the fields in signing scope at time of signature
   // Used to detect if content changed after signing (§6)
-  contentHash      String?
-  isStale          Boolean       @default(false)
-  staledAt         DateTime?
-  staledByUserId   String?
-  staledReason     StaleReason?
+  contentHash    String?
+  isStale        Boolean      @default(false)
+  staledAt       DateTime?
+  staledByUserId String?
+  staledReason   StaleReason?
 
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([evaluationId, role])
   @@map("signatures")
-}
-
-// ─────────────────────────────────────────────────────────────────
-// AI GENERATIONS
-// Full audit trail: what went in, what came out, what the user chose.
-// ─────────────────────────────────────────────────────────────────
-
-model AiGeneration {
-  id              String     @id @default(cuid())
-  evaluationId    String
-  evaluation      Evaluation @relation(fields: [evaluationId], references: [id])
-  section         SectionKey
-  promptVersion   String     // Track which prompt version produced this output
-
-  // Pre-generation rater inputs (the guided questions)
-  raterResponses  Json?
-  // e.g. { "impactQuestion": "...", "developmentQuestion": "...", "promotionReady": true }
-
-  // What support form entries were selected as context
-  entryIds        String[]
-
-  // What Claude returned
-  outputBullets   String[]
-
-  // What the user did with each bullet
-  // -1 = rejected, 0-N = accepted (index into outputBullets)
-  // "modified" = accepted but edited
-  selectionLog    Json?
-  // e.g. [{ "index": 0, "action": "ACCEPTED_MODIFIED", "finalText": "..." }, ...]
-
-  createdAt       DateTime   @default(now())
-
-  @@map("ai_generations")
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -561,11 +638,11 @@ model AiGeneration {
 // ─────────────────────────────────────────────────────────────────
 
 enum NotificationCategory {
-  EVAL_LIFECYCLE  // Status changes, signature requests, routing events
-  MILESTONE       // AR 623-3 suspense events (overdue, due soon)
-  COLLABORATION   // Comment threads, informal review requests
-  DELEGATE        // Delegate appointed, revoked, or reminded
-  SYSTEM          // Global announcements (maintenance, doctrine updates, new features)
+  EVAL_LIFECYCLE // Status changes, signature requests, routing events
+  MILESTONE // AR 623-3 suspense events (overdue, due soon)
+  COLLABORATION // Comment threads, informal review requests
+  DELEGATE // Delegate appointed, revoked, or reminded
+  SYSTEM // Global announcements (maintenance, doctrine updates, new features)
 }
 
 model Notification {
@@ -577,8 +654,8 @@ model Notification {
   category     NotificationCategory @default(SYSTEM)
   title        String
   message      String
-  actionUrl    String?              // Route to navigate when user clicks action button
-  actionLabel  String?              // e.g. "View Eval", "Sign Now", "View Comment"
+  actionUrl    String? // Route to navigate when user clicks action button
+  actionLabel  String? // e.g. "View Eval", "Sign Now", "View Comment"
   isDismissed  Boolean              @default(false)
   readAt       DateTime?
   createdAt    DateTime             @default(now())
@@ -614,39 +691,39 @@ model AuditLog {
 // ─────────────────────────────────────────────────────────────────
 
 enum MilestoneType {
-  INITIAL_COUNSELING_DUE     // AR 623-3: within 30 days of period start
-  QUARTERLY_COUNSELING_1     // ~90 days
-  QUARTERLY_COUNSELING_2     // ~180 days
-  QUARTERLY_COUNSELING_3     // ~270 days
-  RATER_SECTION_DUE          // Default: 14 days before period end
-  SENIOR_RATER_DUE           // Default: 7 days before period end
-  SOLDIER_ACK_DUE            // Default: 3 days before period end
-  EVAL_SUBMISSION_DUE        // Hard deadline: period end date
+  INITIAL_COUNSELING_DUE // AR 623-3: within 30 days of period start
+  QUARTERLY_COUNSELING_1 // ~90 days
+  QUARTERLY_COUNSELING_2 // ~180 days
+  QUARTERLY_COUNSELING_3 // ~270 days
+  RATER_SECTION_DUE // Default: 14 days before period end
+  SENIOR_RATER_DUE // Default: 7 days before period end
+  SOLDIER_ACK_DUE // Default: 3 days before period end
+  EVAL_SUBMISSION_DUE // Hard deadline: period end date
 }
 
 enum MilestoneStatus {
   UPCOMING
-  DUE_SOON    // Within 7 days
-  OVERDUE     // Past due, not complete
+  DUE_SOON // Within 7 days
+  OVERDUE // Past due, not complete
   COMPLETE
-  WAIVED      // Admin override with reason
+  WAIVED // Admin override with reason
 }
 
 model EvalMilestone {
-  id            String          @id @default(cuid())
-  evaluationId  String
-  evaluation    Evaluation      @relation(fields: [evaluationId], references: [id])
-  type          MilestoneType
-  status        MilestoneStatus @default(UPCOMING)
-  dueDate       DateTime
-  completedAt   DateTime?
-  waivedAt      DateTime?
-  waivedById    String?
-  waivedReason  String?
-  notifiedAt    DateTime?
-  escalatedAt   DateTime?
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  id           String          @id @default(cuid())
+  evaluationId String
+  evaluation   Evaluation      @relation(fields: [evaluationId], references: [id])
+  type         MilestoneType
+  status       MilestoneStatus @default(UPCOMING)
+  dueDate      DateTime
+  completedAt  DateTime?
+  waivedAt     DateTime?
+  waivedById   String?
+  waivedReason String?
+  notifiedAt   DateTime?
+  escalatedAt  DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
 
   @@unique([evaluationId, type])
   @@map("eval_milestones")
@@ -664,21 +741,21 @@ enum CommentStatus {
 }
 
 model EvalComment {
-  id            String        @id @default(cuid())
-  evaluationId  String
-  evaluation    Evaluation    @relation(fields: [evaluationId], references: [id])
-  sectionKey    SectionKey?   // null = general comment on the whole eval
-  authorId      String
-  author        User          @relation("AuthoredComments", fields: [authorId], references: [id])
-  content       String
-  status        CommentStatus @default(OPEN)
-  resolvedById  String?
-  resolvedAt    DateTime?
-  parentId      String?
-  parent        EvalComment?  @relation("CommentThread", fields: [parentId], references: [id])
-  replies       EvalComment[] @relation("CommentThread")
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id           String        @id @default(cuid())
+  evaluationId String
+  evaluation   Evaluation    @relation(fields: [evaluationId], references: [id])
+  sectionKey   SectionKey? // null = general comment on the whole eval
+  authorId     String
+  author       User          @relation("AuthoredComments", fields: [authorId], references: [id])
+  content      String
+  status       CommentStatus @default(OPEN)
+  resolvedById String?
+  resolvedAt   DateTime?
+  parentId     String?
+  parent       EvalComment?  @relation("CommentThread", fields: [parentId], references: [id])
+  replies      EvalComment[] @relation("CommentThread")
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
   @@map("eval_comments")
 }
@@ -690,23 +767,23 @@ model EvalComment {
 // ─────────────────────────────────────────────────────────────────
 
 enum DelegateAccessLevel {
-  VIEW_ONLY      // Can see eval status, support form summary, rating scheme
-  PUSH_ALONG     // VIEW_ONLY + can send reminder notifications to chain members
+  VIEW_ONLY // Can see eval status, support form summary, rating scheme
+  PUSH_ALONG // VIEW_ONLY + can send reminder notifications to chain members
 }
 
 model Delegate {
-  id               String              @id @default(cuid())
-  principalId      String              // The user who appointed the delegate
-  principal        User                @relation("DelegateAppointments", fields: [principalId], references: [id])
-  delegateUserId   String              // The user who is the delegate
-  delegateUser     User                @relation("DelegatedAccess", fields: [delegateUserId], references: [id])
-  accessLevel      DelegateAccessLevel @default(VIEW_ONLY)
-  effectiveDate    DateTime
-  expiryDate       DateTime?           // Delegate access can be time-limited
-  isActive         Boolean             @default(true)
-  appointedReason  String?             // "Deployed to CENTCOM AOR 01 JUN 2025"
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
+  id              String              @id @default(cuid())
+  principalId     String // The user who appointed the delegate
+  principal       User                @relation("DelegateAppointments", fields: [principalId], references: [id])
+  delegateUserId  String // The user who is the delegate
+  delegateUser    User                @relation("DelegatedAccess", fields: [delegateUserId], references: [id])
+  accessLevel     DelegateAccessLevel @default(VIEW_ONLY)
+  effectiveDate   DateTime
+  expiryDate      DateTime? // Delegate access can be time-limited
+  isActive        Boolean             @default(true)
+  appointedReason String? // "Deployed to CENTCOM AOR 01 JUN 2025"
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
 
   @@unique([principalId, delegateUserId])
   @@map("delegates")
@@ -717,17 +794,23 @@ model Delegate {
 // ─────────────────────────────────────────────────────────────────
 
 model RegulationChunk {
-  id          String   @id @default(cuid())
-  docTitle    String   // "DA PAM 623-3", "AR 623-3", "AR 350-1"
-  section     String   // "Chapter 3", "Table 3-1", "Appendix B"
-  heading     String   // Human-readable heading e.g. "NCOER Bullet Comments"
-  content     String   // The actual text chunk (~400-800 words)
-  // Embedding stored as raw JSON float array; pgvector queried via $queryRaw
-  // Note: Prisma does not natively support the `vector` type yet.
-  // We store it in a separate raw column created via migration.
-  pageStart   Int?     // PDF page number (for citation)
-  pageEnd     Int?
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  docTitle  String // "DA PAM 623-3", "AR 623-3", "AR 350-1"
+  section   String // "Chapter 3", "Table 3-1", "Appendix B"
+  heading   String // Human-readable heading e.g. "NCOER Bullet Comments"
+  content   String // The actual text chunk (~400-800 words)
+  // Embedding stored via pgvector. Declared `Unsupported` (not a real column
+  // Prisma Client can read/write directly — raw SQL via $queryRawUnsafe is
+  // still required for it) SPECIFICALLY so `prisma migrate dev`'s schema
+  // diff sees it and stops trying to DROP it as an "unknown" column. This
+  // field was accidentally dropped twice already (2026-07-01 UserRole enum
+  // migration, then again by an unrelated 2026-07-05 migration) because it
+  // was previously absent from schema.prisma entirely — do NOT remove this
+  // field or migrate dev will drop the column a third time.
+  embedding Unsupported("vector(1536)")?
+  pageStart Int? // PDF page number (for citation)
+  pageEnd   Int?
+  createdAt DateTime @default(now())
 
   @@index([docTitle, section])
   @@map("regulation_chunks")
@@ -745,11 +828,11 @@ model SupportFormUpload {
   evaluation   Evaluation              @relation(fields: [evaluationId], references: [id])
   uploadedById String
   uploadedBy   User                    @relation("UploadedForms", fields: [uploadedById], references: [id])
-  fileUrl      String                  // Supabase Storage URL
-  fileType     String                  // "pdf" | "image"
+  fileUrl      String // Supabase Storage URL
+  fileType     String // "pdf" | "image"
   parseStatus  SupportFormUploadStatus @default(PENDING_EXTRACT)
   parseError   String?
-  rawExtract   String?                 // Stage 1 raw vision output
+  rawExtract   String? // Stage 1 raw vision output
   createdAt    DateTime                @default(now())
   updatedAt    DateTime                @updatedAt
 
@@ -765,7 +848,7 @@ model AIExtractedEntry {
   uploadId     String
   upload       SupportFormUpload @relation(fields: [uploadId], references: [id])
   evaluationId String
-  section      SectionKey        // Classified to CHARACTER | PRESENCE | ... | ACHIEVES
+  section      SectionKey // Classified to CHARACTER | PRESENCE | ... | ACHIEVES
   what         String
   impact       String?
   date         String?
@@ -777,23 +860,36 @@ model AIExtractedEntry {
 
 // Stage 3 output: ranked bullet candidates per section for rater review
 model AIBulletSuggestion {
-  id             String              @id @default(cuid())
+  id             String             @id @default(cuid())
   evaluationId   String
-  evaluation     Evaluation          @relation(fields: [evaluationId], references: [id])
+  evaluation     Evaluation         @relation(fields: [evaluationId], references: [id])
   uploadId       String?
-  upload         SupportFormUpload?  @relation(fields: [uploadId], references: [id])
+  upload         SupportFormUpload? @relation(fields: [uploadId], references: [id])
   sectionKey     SectionKey
   text           String
-  confidence     AIBulletConfidence  @default(MEDIUM)
-  rank           Int                 // 1 = best candidate
-  status         AIBulletStatus      @default(PENDING_REVIEW)
-  editedText     String?             // Populated if rater edits before accepting
+  confidence     AIBulletConfidence @default(MEDIUM)
+  rank           Int // 1 = best candidate
+  status         AIBulletStatus     @default(PENDING_REVIEW)
+  editedText     String? // Populated if rater edits before accepting
   reviewedById   String?
   reviewedAt     DateTime?
-  sourceEntryIds String[]            // AIExtractedEntry IDs that contributed
+  sourceEntryIds String[] // AIExtractedEntry OR SupportFormEntry IDs that contributed
 
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
+  // Immutable snapshot of the source text (entry rawText + artifact captions)
+  // at generation time (MVP audit 5.1/5.9). Source entries can be edited or
+  // deleted later — this preserves "what was actually said" for provenance
+  // and PDF/history purposes regardless of later edits.
+  sourceSnapshot Json?
+  // e.g. [{ "entryId": "...", "rawText": "...", "artifactCaptions": ["..."] }]
+
+  // Deterministic unsupported-fact warnings computed at generation time
+  // (MVP audit 5.10) — numbers/dates/schools/awards in `text` not found in
+  // `sourceSnapshot`. Advisory only, never auto-blocking.
+  unsupportedClaims Json?
+  // e.g. [{ "claimText": "180 hours", "claimType": "NUMBER", "reason": "..." }]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("ai_bullet_suggestions")
 }

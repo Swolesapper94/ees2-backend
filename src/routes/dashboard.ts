@@ -3,10 +3,108 @@ import { prisma } from "@/lib/prisma";
 import { asyncHandler, HttpError } from "@/middleware/error";
 import { requireAuth } from "@/middleware/auth";
 import { resolveFormType } from "@/lib/utils/role-resolver";
+import { isNcoGrade, srMqCapPercentFor } from "@/lib/utils/grade";
+import { getOpenAI } from "@/lib/ai/claude";
+import { env } from "@/config/env";
 import { addDays, differenceInDays, startOfMonth, subMonths, format } from "date-fns";
 import type { MilestoneType } from "@prisma/client";
 
 export const dashboardRouter = Router();
+
+interface DashboardRecapEvent {
+  occurredAt: Date;
+  detail: string;
+}
+
+function fallbackRecap(events: DashboardRecapEvent[], isFirstVisit: boolean): string {
+  if (isFirstVisit) return "Welcome to your dashboard. Your current evaluation work and recent updates are ready to review.";
+  if (events.length === 0) return "No new evaluation or support-form updates since your last login.";
+  if (events.length === 1) return `Since your last login: ${events[0]!.detail}`;
+  return `Since your last login: ${events.length} updates need your attention, including ${events[0]!.detail}`;
+}
+
+async function buildDashboardRecap(userId: string, lastLoginAt: Date | null): Promise<string> {
+  if (!lastLoginAt) return fallbackRecap([], true);
+
+  const changedSince = { gt: lastLoginAt };
+  const chainScope = {
+    OR: [{ ratedSoldierId: userId }, { raterId: userId }, { seniorRaterId: userId }],
+  };
+
+  const [notifications, evaluations, entries] = await Promise.all([
+    prisma.notification.findMany({
+      where: { userId, createdAt: changedSince },
+      orderBy: { createdAt: "desc" },
+      take: 4,
+      select: { title: true, message: true, createdAt: true },
+    }),
+    prisma.evaluation.findMany({
+      where: { updatedAt: changedSince, ratingChain: chainScope },
+      orderBy: { updatedAt: "desc" },
+      take: 4,
+      select: {
+        status: true,
+        updatedAt: true,
+        ratingChain: { select: { ratedSoldier: { select: { rank: true, lastName: true } } } },
+      },
+    }),
+    prisma.supportFormEntry.findMany({
+      where: {
+        updatedAt: changedSince,
+        supportForm: { ratingChain: chainScope },
+      },
+      orderBy: { updatedAt: "desc" },
+      take: 4,
+      select: {
+        entryType: true,
+        section: true,
+        updatedAt: true,
+        supportForm: { select: { soldier: { select: { rank: true, lastName: true } } } },
+      },
+    }),
+  ]);
+
+  const events: DashboardRecapEvent[] = [
+    ...notifications.map((notification) => ({
+      occurredAt: notification.createdAt,
+      detail: notification.title,
+    })),
+    ...evaluations.map((evaluation) => ({
+      occurredAt: evaluation.updatedAt,
+      detail: `${evaluation.ratingChain.ratedSoldier.rank} ${evaluation.ratingChain.ratedSoldier.lastName}'s evaluation is now ${evaluation.status.replaceAll("_", " ").toLowerCase()}`,
+    })),
+    ...entries.map((entry) => ({
+      occurredAt: entry.updatedAt,
+      detail: `${entry.entryType.toLowerCase()} added for ${entry.supportForm.soldier.rank} ${entry.supportForm.soldier.lastName} in ${entry.section.toLowerCase()}`,
+    })),
+  ]
+    .sort((first, second) => second.occurredAt.getTime() - first.occurredAt.getTime())
+    .slice(0, 6);
+
+  if (events.length === 0) return fallbackRecap(events, false);
+
+  try {
+    const completion = await getOpenAI().chat.completions.create({
+      model: env.openaiModel,
+      max_tokens: 120,
+      messages: [
+        {
+          role: "system",
+          content: "Write one concise dashboard recap sentence. Use only the supplied event facts. Do not invent facts, recommendations, dates, or urgency. Start with 'Since your last login:' and avoid markdown.",
+        },
+        {
+          role: "user",
+          content: events.map((event) => `- ${event.detail}`).join("\n"),
+        },
+      ],
+    });
+    const recap = completion.choices[0]?.message.content?.trim();
+    return recap || fallbackRecap(events, false);
+  } catch (error) {
+    console.warn("[dashboard] OpenAI recap unavailable", error);
+    return fallbackRecap(events, false);
+  }
+}
 
 /**
  * GET /api/dashboard
@@ -23,6 +121,11 @@ dashboardRouter.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
+    const persistedUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { lastLoginAt: true },
+    });
+    const dashboardRecap = await buildDashboardRecap(userId, persistedUser?.lastLoginAt ?? null);
 
     // ── Zone A — my own chain (I am the rated soldier) ────────────
     const myChain = await prisma.ratingChain.findFirst({
@@ -138,6 +241,7 @@ dashboardRouter.get(
 
     res.json({
       myUser: req.user,
+      dashboardRecap,
       myChain: myChain
         ? {
             ...myChain,
@@ -148,6 +252,11 @@ dashboardRouter.get(
         : null,
       soldierChains,
     });
+
+    await prisma.user.updateMany({
+      where: { id: userId },
+      data: { lastLoginAt: new Date() },
+    });
   }),
 );
 
@@ -156,10 +265,8 @@ dashboardRouter.get(
 // All scoped to the authenticated user's own rating activity.
 // ─────────────────────────────────────────────────────────────────
 
-const NCO_RANKS = ["SGT","SSG","SFC","MSG","FIRST_SERGEANT","SGM","CSM","SMA"];
-const WO_RANKS  = ["WO1","CW2","CW3","CW4","CW5"];
+const WO_RANKS = ["WO1", "CW2", "CW3", "CW4", "CW5"];
 
-function isNcoGrade(rank: string): boolean { return NCO_RANKS.includes(rank); }
 function isOfficerOrWo(rank: string): boolean {
   return WO_RANKS.includes(rank) || (!isNcoGrade(rank) && !["PVT","PV2","PFC","SPC","CPL"].includes(rank));
 }
@@ -172,6 +279,69 @@ const GRADE_SORT: Record<string, number> = {
   SECOND_LT:19, FIRST_LT:20, CPT:21, MAJ:22, LTC:23, COL:24,
   BG:25, MG:26, LTG:27, GEN:28, GA:29,
 };
+
+// Ordinal score for a section rating, used to build a single self-referential
+// trend line across a career's worth of rating levels (binary and 4-level
+// forms share one 0-3 scale here so NCO/Officer periods stay comparable).
+const RATING_LEVEL_SCORE: Record<string, number> = {
+  DID_NOT_MEET_STANDARD: 0,
+  NOT_MET_STANDARD: 0,
+  QUALIFIED: 1,
+  MET_STANDARD: 2,
+  EXCEEDED_STANDARD: 2,
+  FAR_EXCEEDED_STANDARD: 3,
+};
+
+// ── GET /api/dashboard/my-history — Soldier's OWN rating trend over time ──
+// Deliberately self-referential ONLY (never peer- or unit-compared) — HBR/
+// Cornell research cited in product research shows "you vs. your own past"
+// is perceived as fairer than peer ranking. Spans every rating chain the
+// Soldier has ever been rated on (handles PCS/change-of-rater transitions),
+// not just their current chain.
+dashboardRouter.get(
+  "/my-history",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.id;
+
+    const evals = await prisma.evaluation.findMany({
+      where: {
+        status: { in: ["COMPLETE", "SUBMITTED", "ACCEPTED"] },
+        ratingChain: { ratedSoldierId: userId },
+      },
+      include: {
+        sections: { select: { section: true, ratingBinary: true, ratingFourLevel: true } },
+        ratingChain: {
+          select: { rater: { select: { firstName: true, lastName: true, rank: true } } },
+        },
+      },
+      orderBy: { periodStart: "asc" },
+    });
+
+    const history = evals.map((ev) => {
+      const levels = ev.sections
+        .map((s) => s.ratingFourLevel ?? s.ratingBinary)
+        .filter((l): l is NonNullable<typeof l> => l !== null);
+      const scores = levels.map((l) => RATING_LEVEL_SCORE[l] ?? 1);
+      const avgSectionScore =
+        scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+
+      return {
+        evaluationId: ev.id,
+        periodStart: ev.periodStart,
+        periodEnd: ev.periodEnd,
+        formType: ev.formType,
+        status: ev.status,
+        seniorRaterRating: ev.seniorRaterRating,
+        avgSectionScore, // 0–3 scale
+        sectionCount: levels.length,
+        rater: ev.ratingChain.rater,
+      };
+    });
+
+    res.json({ history });
+  }),
+);
 
 // ── GET /api/dashboard/analytics ─ KPI Strip values ──────────────
 dashboardRouter.get(
@@ -705,7 +875,7 @@ dashboardRouter.get(
         const total = counts.MQ + counts.HQ + counts.Q + counts.NQ;
         const mqPct = total > 0 ? Math.round((counts.MQ / total) * 100) : 0;
         const isNco = isNcoGrade(grade);
-        const cap = isNco ? 24 : 50; // hard cap
+        const cap = srMqCapPercentFor(grade); // hard cap (24% NCO / 50% Officer, AR 623-3)
         const recommended = isNco ? 24 : 33; // recommended cap
         const cushion = Math.max(0, recommended - mqPct);
         const misfire = mqPct > cap;

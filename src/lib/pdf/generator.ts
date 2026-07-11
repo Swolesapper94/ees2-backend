@@ -1,6 +1,5 @@
-import { renderToBuffer } from "@react-pdf/renderer";
-import { createElement } from "react";
-import { NCOERTemplate, type EvalPdfData } from "./NCOERTemplate";
+import { generateOfficialNCOERPDF } from "./officialFormGenerator";
+import type { EvalPdfData } from "./NCOERTemplate";
 
 const FORM_TITLES: Record<string, string> = {
   NCOER_9_1: "DA FORM 2166-9-1 — NCO EVALUATION REPORT (SGT)",
@@ -16,8 +15,6 @@ export async function generateNCOERPDF(
     ...data,
     formTitle: FORM_TITLES[formType] ?? data.formTitle,
   };
-  // NCOERTemplate wraps a react-pdf Document; cast is safe at runtime.
-  return renderToBuffer(
-    createElement(NCOERTemplate, { data: withTitle }) as Parameters<typeof renderToBuffer>[0],
-  );
+  // Use the official form generator with pdf-lib
+  return generateOfficialNCOERPDF(withTitle, formType);
 }

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { prisma } from "@/lib/prisma";
 import { asyncHandler, HttpError } from "@/middleware/error";
-import { requireAuth } from "@/middleware/auth";
+import { requireAuth, requireRole } from "@/middleware/auth";
 import { differenceInDays } from "date-fns";
 
 export const analyticsRouter = Router();
@@ -10,6 +10,7 @@ export const analyticsRouter = Router();
 analyticsRouter.get(
   "/",
   requireAuth,
+  requireRole("COMMANDER"),
   asyncHandler(async (_req, res) => {
     const evals = await prisma.evaluation.findMany({
       include: {
@@ -24,7 +25,7 @@ analyticsRouter.get(
     const now = new Date();
 
     // Stage metrics — avg days to complete each stage
-    const stageGroups: Record<string, number[]> = {
+    const stageGroups: Record<"rater" | "senior_rater" | "soldier_ack", number[]> = {
       rater: [],
       senior_rater: [],
       soldier_ack: [],

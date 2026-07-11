@@ -13,6 +13,30 @@ export interface NotificationInput {
 
 /** Create a notification for a single user. */
 export async function notify(input: NotificationInput) {
+  // If evaluationId is provided, verify it exists before creating the notification
+  if (input.evaluationId) {
+    const evalExists = await prisma.evaluation.findUnique({
+      where: { id: input.evaluationId },
+      select: { id: true },
+    });
+    if (!evalExists) {
+      // Silently skip if the evaluation doesn't exist — don't crash the route
+      return;
+    }
+  }
+
+  // Respect the recipient's notification preferences (Settings page). A
+  // missing key defaults to enabled, so users who've never touched Settings
+  // keep getting every category.
+  const recipient = await prisma.user.findUnique({
+    where: { id: input.userId },
+    select: { notificationPreferences: true },
+  });
+  const prefs = (recipient?.notificationPreferences as Record<string, boolean> | null) ?? {};
+  if (prefs[input.category] === false) {
+    return;
+  }
+
   return prisma.notification.create({ data: input }).catch(() => {
     // Never let notification creation crash a route
   });
@@ -22,10 +46,16 @@ export async function notify(input: NotificationInput) {
 export async function notifyAll(
   input: Omit<NotificationInput, "userId">,
 ) {
-  const users = await prisma.user.findMany({ select: { id: true } });
+  const users = await prisma.user.findMany({
+    select: { id: true, notificationPreferences: true },
+  });
+  const recipients = users.filter((u) => {
+    const prefs = (u.notificationPreferences as Record<string, boolean> | null) ?? {};
+    return prefs[input.category] !== false;
+  });
   return prisma.notification
     .createMany({
-      data: users.map((u) => ({ ...input, userId: u.id })),
+      data: recipients.map((u) => ({ ...input, userId: u.id })),
       skipDuplicates: true,
     })
     .catch(() => {});

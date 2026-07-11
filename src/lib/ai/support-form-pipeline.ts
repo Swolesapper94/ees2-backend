@@ -11,7 +11,7 @@
 
 import fs from "fs";
 import { prisma } from "@/lib/prisma";
-import { extractTextFromImage, callClaudeForJson, generateBullets } from "./claude";
+import { extractTextFromImage, callClaudeForJson, generateBullets, sanitizeBulletText } from "./claude";
 import { searchRegulations } from "@/lib/regulations/search";
 import { SYSTEM_PROMPT } from "./prompts";
 
@@ -53,11 +53,22 @@ async function runStage1(
   });
 
   let rawExtract: string;
+  let buffer: Buffer;
+
+  // Load file from either remote URL or local file:// URL (dev mode)
+  if (fileUrl.startsWith("file://")) {
+    // Dev mode: read from local temp file
+    const localPath = fileUrl.replace("file://", "");
+    console.log(`[pipeline] Loading file from local temp path: ${localPath}`);
+    buffer = fs.readFileSync(localPath);
+  } else {
+    // Production: fetch from remote URL
+    const response = await fetch(fileUrl);
+    buffer = Buffer.from(await response.arrayBuffer());
+  }
 
   if (fileType === "image") {
-    // Download the image and convert to base64 for Claude vision
-    const response = await fetch(fileUrl);
-    const buffer = Buffer.from(await response.arrayBuffer());
+    // Convert image buffer to base64 for Claude vision
     const base64 = buffer.toString("base64");
 
     // Detect media type from URL
@@ -74,10 +85,17 @@ async function runStage1(
     });
   } else {
     // PDF — use pdf-parse to extract text, then send to Claude for normalization
-    const { default: pdfParse } = await import("pdf-parse");
-    const response = await fetch(fileUrl);
-    const buffer = Buffer.from(await response.arrayBuffer());
-    const { text } = await pdfParse(buffer);
+    let text: string = "";
+    try {
+      const { default: pdfParse } = await import("pdf-parse");
+      const result = await pdfParse(buffer);
+      text = result.text || "";
+    } catch (pdfErr) {
+      console.warn("[pipeline] pdf-parse failed, trying alternative parsing...", pdfErr);
+      // Fallback: treat PDF as binary and extract what we can
+      // Or use buffer-to-string for basic text extraction
+      text = buffer.toString("latin1").slice(0, 6000);
+    }
 
     // For typed PDFs, send the extracted text to Claude to normalize/label it
     rawExtract = await callClaudeForJson<string>({
@@ -280,7 +298,7 @@ Output JSON only. No preamble. No markdown. Format:
           evaluationId,
           uploadId,
           sectionKey: sectionKey as never,
-          text: b.text.slice(0, 300),
+          text: sanitizeBulletText(b.text).slice(0, 300),
           confidence: (b.confidence ?? "MEDIUM") as never,
           rank: b.rank ?? 1,
           status: "PENDING_REVIEW" as never,
@@ -376,4 +394,76 @@ Output JSON only: [{ "rank": 1, "text": "...", "confidence": "HIGH|MEDIUM|LOW" }
     userPrompt,
     maxTokens: 1500,
   });
+}
+// \u2500\u2500\u2500 Generate bullets from selected Support Form entries (guided-flow entries) \u2500\u2500\u2500\u2500\u2500\u2500
+
+/**
+ * Generate bullet suggestions from soldier-logged SupportFormEntry rows
+ * (guided support form flow), rather than a whole-document upload. Any
+ * attached artifacts' AI captions (see artifact-captioning.ts) are folded
+ * in as supporting evidence context. Also surfaces any soldier-flagged
+ * artifacts so the rater knows to verify before relying on the bullet.
+ */
+export async function generateBulletsFromEntries(args: {
+  evaluationId: string;
+  sectionKey: string;
+  entryIds: string[];
+  soldierInfo: { rank: string; mos: string; dutyTitle: string; formType: string };
+}): Promise<{ bullets: BulletCandidate[]; hasFlaggedArtifacts: boolean }> {
+  const entries = await prisma.supportFormEntry.findMany({
+    where: { id: { in: args.entryIds } },
+    include: { artifacts: true },
+  });
+
+  const hasFlaggedArtifacts = entries.some((e) =>
+    e.artifacts.some((a) => a.flaggedByServiceMember),
+  );
+
+  const regQuery = `NCOER ${args.sectionKey} section ${SECTION_DEFINITIONS[args.sectionKey] ?? args.sectionKey}`;
+  const regChunks = await searchRegulations(regQuery, 3);
+  const regContext = regChunks
+    .map((c) => `[${c.docTitle} ${c.section}] ${c.heading}:\n${c.content.slice(0, 600)}`)
+    .join("\n\n");
+
+  const formNumber = args.soldierInfo.formType.includes("9_1") ? "9-1" : "9-2";
+
+  const systemPrompt = `${SYSTEM_PROMPT}
+
+ARMY REGULATION CONTEXT (for accuracy):
+${regContext}`;
+
+  const entryText = entries
+    .map((e, i) => {
+      const parts = [`${i + 1}. ${e.rawText}`];
+      const captions = e.artifacts
+        .filter((a) => a.aiCaptionStatus === "COMPLETE" && a.aiCaption)
+        .map((a) => a.aiCaption);
+      if (captions.length > 0) {
+        parts.push(`   Supporting evidence: ${captions.join("; ")}`);
+      }
+      return parts.join("\n");
+    })
+    .join("\n");
+
+  const userPrompt = `SOLDIER: ${args.soldierInfo.rank}, MOS ${args.soldierInfo.mos}
+DUTY TITLE: ${args.soldierInfo.dutyTitle}
+SECTION: ${args.sectionKey}
+
+SECTION DEFINITION:
+${SECTION_DEFINITIONS[args.sectionKey] ?? args.sectionKey}
+
+SOLDIER-LOGGED ACCOMPLISHMENTS SELECTED BY THE RATER:
+${entryText || "(none)"}
+
+Write 5 NCOER bullet candidates for DA 2166-${formNumber}. Rank best to worst.
+Each bullet: action verb, action-impact format, no pronouns, \u2264200 chars.
+Output JSON only: [{ "rank": 1, "text": "...", "confidence": "HIGH|MEDIUM|LOW" }]`;
+
+  const bullets = await callClaudeForJson<BulletCandidate[]>({
+    systemPrompt,
+    userPrompt,
+    maxTokens: 1500,
+  });
+
+  return { bullets, hasFlaggedArtifacts };
 }
