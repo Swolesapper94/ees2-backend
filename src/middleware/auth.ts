@@ -98,10 +98,15 @@ export async function requireAuth(
   const token = header.slice("Bearer ".length).trim();
 
   // Dev mode: resolve identity from the in-memory credential map directly.
-  // Skip database lookup in dev — the seeded users are already in memory.
-  // This avoids unnecessary connection pool exhaustion on every request.
   if (!isProd && token in DEV_USERS) {
-    const user = DEV_USERS[token]!;
+    const devUser = DEV_USERS[token]!;
+    // Existing demo databases may have users created before their stable dev
+    // IDs were introduced. Resolve by email so chain queries use the persisted
+    // foreign-key identity rather than the in-memory placeholder ID.
+    const persistedUser = await prisma.user.findUnique({
+      where: { email: devUser.email },
+    });
+    const user = persistedUser ?? devUser;
     req.authUserId = user.supabaseId;
     req.user = user;
     next();
