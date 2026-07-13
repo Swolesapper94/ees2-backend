@@ -24,7 +24,7 @@ EES 2.0 is a **split-stack** web application — two independently deployable ap
                     ┌─────────────────────────────────────────────┬──────────┴───────────┐
                     ▼                                             ▼                        ▼
           ┌──────────────────┐                        ┌────────────────────┐   ┌────────────────────┐
-          │ Anthropic Claude │                        │  Supabase Storage  │   │  @react-pdf/renderer│
+          │ OpenAI API       │                        │  Supabase Storage  │   │  @react-pdf/renderer│
           │  (AI generation) │                        │ (artifacts/uploads)│   │  (DA-form PDFs)     │
           └──────────────────┘                        └────────────────────┘   └────────────────────┘
 ```
@@ -56,9 +56,9 @@ EES 2.0 is a **split-stack** web application — two independently deployable ap
 | ORM | **Prisma 6** |
 | Database | **PostgreSQL** (hosted via Supabase) |
 | Auth verification | `@supabase/supabase-js` service-role client verifies incoming JWTs |
-| AI | `@anthropic-ai/sdk` — **Claude (claude-sonnet-4-6)** for text + vision |
+| AI | `openai` — configured OpenAI model for text and vision |
 | PDF | `@react-pdf/renderer` — renders official DA forms server-side |
-| File parsing | `pdf-parse` (PDF text), Claude vision (images/handwriting) |
+| File parsing | `pdf-parse` (PDF text), OpenAI vision (images/handwriting) |
 | Uploads | `multer` (in-memory) → Supabase Storage |
 | Validation | **Zod** on every request body |
 | Hardening | `helmet`, `cors`, `morgan` |
@@ -68,7 +68,7 @@ EES 2.0 is a **split-stack** web application — two independently deployable ap
 - **Split stack** keeps regulation/authorization logic in one auditable place and leaves the door open to additional clients.
 - **Prisma + PostgreSQL** gives a strongly-typed data layer over a battle-tested relational database — appropriate for a system where relationships (chains, signatures, audit) and integrity matter more than raw document flexibility.
 - **Supabase** provides managed Postgres, auth, and object storage without standing up that infrastructure from scratch — while remaining standard Postgres underneath, so it is portable.
-- **Claude** was chosen for strong instruction-following and vision (reading handwritten support forms and captioning artifacts), which the anti-autopilot workflow depends on.
+- **OpenAI** provides the configured text and vision model for reading handwritten support forms, captioning artifacts, and drafting rater suggestions.
 
 ---
 
@@ -79,7 +79,7 @@ Two sibling folders in one workspace. Path alias `@/*` → `src/*` in both.
 ```
 ees2-backend/
   prisma/
-    schema.prisma          # the entire data model (22 models, ~25 enums)
+    schema.prisma          # the entire data model, including assignment/snapshot lifecycle records
     seed.ts                # realistic demo formation
   src/
     app.ts, index.ts       # Express bootstrap
@@ -87,7 +87,7 @@ ees2-backend/
     middleware/            # auth (JWT verify), error handling
     routes/                # one router per domain (see §5)
     lib/
-      ai/                  # Claude client, prompts, pipelines, captioning
+      ai/                  # OpenAI client, prompts, pipelines, captioning
       support-form/        # completeness gating, goal prompts
       regulations/         # ingest + semantic search (RAG over AR/DA PAM)
       milestones/          # AR 623-3 milestone generation
@@ -116,18 +116,22 @@ ees2-frontend/
 The schema has **22 models**. These are the ones that carry the system:
 
 ### People & structure
-- **`User`** — a service member. Holds rank, MOS, roles (`SOLDIER`, `RATER`, `SENIOR_RATER`, `REVIEWER`, `COMMANDER`, `ADMIN`, plus unit-leadership roles), profile picture, unit.
+- **`User`** — a service member. Holds rank, category, MOS, roles (`SOLDIER`, `RATER`, `SENIOR_RATER`, legacy `REVIEWER`, `COMMANDER`, `ADMIN`, plus unit-leadership roles), profile picture, unit. The `REVIEWER` enum rename to `SUPPLEMENTARY_REVIEWER` is staged for compatibility with existing stored data.
+- **Identity and Access records** — `IdentitySourceRecord`, `IdentitySyncEvent`, `IdentityException`, `AdministrativeScope`, and `ManualOverride` track authoritative-source state, synchronization, exceptions, EES-only access scope, and reconciliations without overwriting the core `User` identity. `User.applicationAccessStatus`, access-review status, `applicationSupportRole`, break-glass eligibility, and temporary access expiration are EES state, not personnel status or rating authority.
 - **`Unit`** — the organizational node (UIC, name).
-- **`RatingChain`** — the heart of authorization: links a rated soldier → rater → senior rater → (optional reviewer). Persists across multiple annual cycles.
+- **`RatingSchemeAssignment`** — the compliance-authoritative, effective-dated relationship: rated soldier → rater → optional intermediate rater → senior rater → optional supplementary reviewer. It moves through draft, approval, publication, and prospective replacement, with eligibility and overlap validation.
+- **`RatingChain`** — the legacy relationship retained for compatibility while historical records and older dashboard paths are migrated. It is not the authority for new assignment-backed evaluations.
 
 ### Continuous performance capture
-- **`SupportForm`** — a rating-period performance log, anchored to a `RatingChain`. Carries `evalCategory` (NCOER/OER), the Part I–III admin fields, and `completedAt` (the timestamp that unlocks evaluation initiation).
-- **`SupportFormEntry`** — one logged objective or accomplishment, tagged to a `SectionKey` (one of the six dimensions) and an `EntryType` (`OBJECTIVE` / `ACCOMPLISHMENT`). Carries a rater-owned **confirmation status** (`UNREVIEWED` / `CONFIRMED` / `NEEDS_CLARIFICATION` / `NOT_USED`, with the confirming user and timestamp) — distinct from the soldier's own artifact-level self-attestation — so a rater can explicitly record having reviewed an entry, or ask for clarification, before relying on it.
+- **`SupportForm`** — a rating-period performance log, anchored to a legacy `RatingChain` or a versioned `RatingSchemeAssignment` during transition. It carries explicit lifecycle (`DRAFT` through `CONSUMED`, plus archive/quarantine), disposition, initiator, version, and consumption metadata as well as `evalCategory` and completeness fields.
+- **`SupportFormEntry`** — one logged objective or accomplishment, tagged to a `SectionKey` (one of the six dimensions) and an `EntryType` (`OBJECTIVE` / `ACCOMPLISHMENT`). It records creator, role at creation, last editor, source version, and confirmation lock metadata. A rater or senior rater may confirm, request clarification, or mark an entry not used; a supplementary reviewer may not.
 - **`SupportFormEntryArtifact`** — proof attached to an entry: `type` (Certificate/Score Sheet/Photo/Document/Other), the stored file, an AI-generated `aiCaption` (+ status), and a soldier self-attestation flag (`flaggedByServiceMember` + note) for iPERMS-discrepancy transparency.
 - **`CounselingSession`** — recorded initial/quarterly counseling (feeds compliance analytics and the DA-form Part II dates).
 
 ### The evaluation
-- **`Evaluation`** — the official NCOER/OER. Links to its `RatingChain` and (once "consumed") its source `SupportForm`. Holds Part I administrative data, Part III duty description, Part V succession planning, ACFT/height/weight, and lifecycle timestamps (`submittedAt`, `acceptedAt`). Its `EvalStatus` is **automatically derived** from real section-completion and signature state (not set manually), so the displayed status always reflects where the report actually stands.
+- **`Evaluation`** — the official NCOER/OER. Links to its legacy chain during the migration and, for assignment-backed creation, has one immutable `EvaluationRatingSnapshot` recording the approved officials, ranks, categories, form category, and policy exception at creation. It also has an explicit active/quarantined/archived disposition. Status is **automatically derived** from real section-completion and signature state.
+- **`EvaluationRatingSnapshot`** — the immutable authorization source for a new evaluation. A later assignment revision cannot change who can see, edit, or review an existing evaluation.
+- **`Delegate` / access grant** — the compatibility-preserved `delegates` table now supports explicit grant type, lifecycle state, resource scope, effective period, subject, and `DelegationCapabilityGrant` rows. It is not a role and never modifies a rating chain or evaluation snapshot.
 - **`EvalSection`** — one section of the form (the six Part IV dimensions plus overalls): rating value, final bullets, `bulletSources` (a per-bullet provenance label — `HUMAN` / `AI_MODIFIED` / `AI_UNMODIFIED`), `bulletProvenance` (the full chain from a final bullet back to its originating AI suggestion, the source entries, and the evidence snapshot used to generate it), completion state.
 - **`SeniorRaterProfile`** — the senior rater's cumulative "most qualified" distribution, used to enforce the profile cap.
 - **`Signature`** — a role's signature with `nameConfirmation`, IP/user-agent, optional CAC/PKI fields, and a content hash for stale detection.
@@ -135,11 +139,11 @@ The schema has **22 models**. These are the ones that carry the system:
 
 ### AI & audit
 - **`AIBulletSuggestion`** — every AI-drafted bullet candidate, whether generated from selected support-form entries, a rater's free-text description, or the whole-document upload pipeline. Carries rank, confidence, and review status (`PENDING_REVIEW` → `ACCEPTED` / `EDITED` / `REJECTED`), plus two integrity fields captured **at generation time**: an **immutable source snapshot** (the exact entry text and artifact captions the bullet was drafted from — a later edit or deletion of the source entry can never retroactively rewrite this history) and any **unsupported-fact warnings** (see §6).
-- **`SupportFormUpload` / `AIExtractedEntry`** — the whole-document upload pipeline: a scanned support form is uploaded, vision-extracted, and parsed into typed entries mapped to the six dimensions.
+- **`SupportFormUpload` / `AIExtractedEntry`** — the whole-document upload pipeline: a scanned support form is uploaded, vision-extracted, and parsed into typed entries mapped to the six dimensions. The active upload run generates at most one candidate per extracted fact, preserves the exact source snapshot, and may be reprocessed without deleting prior runs.
 - **`AuditLog`** — general tamper-evident action log (signatures, submissions, entry confirmations, suggestion review actions, evaluation-status transitions, and more).
 - **`EvalMilestone`** — generated AR 623-3 suspense dates.
 - **`EvalComment`** — collaboration threads on an evaluation.
-- **`Delegate`** — delegated access grants (e.g., temporary rater authority).
+- **Legacy `Delegate` fields** — retained compatibility data for the scoped Access and Assistance migration; never a source of temporary rating authority.
 - **`RegulationChunk`** — chunked, searchable regulation text (AR 623-3 / DA PAM 623-3) that powers retrieval-augmented generation so bullets are doctrinally grounded.
 
 ### The six leadership dimensions (`SectionKey`)
@@ -158,11 +162,15 @@ All routes are mounted under `/api`. Every route except `/api/health` requires a
 
 | Router | Responsibility |
 |--------|----------------|
-| `/api/users` | Directory + current-user (`/me`) + admin create |
-| `/api/units`, `/api/rating-chains` | Org structure and chains |
-| `/api/support-forms` | Support-form CRUD, entries, **artifact upload/flag/delete** (upload-ownership authorized), rater **entry confirmation**, completeness, finalize, counseling dates |
-| `/api/support-form-uploads` | Whole-document upload pipeline; **generate-from-entries**, generate-from-scratch (both chain-authorized, both capture an immutable source snapshot and run unsupported-fact checks); bullet review (**transactional, idempotent** accept/edit/reject) |
-| `/api/evaluations` | Eval lifecycle, section editing (auto-recomputes status), consistency check, signing (role- and chain-authorized); support-form completeness gate on creation |
+| `/api/users` | Current-user (`/me`) profile/preferences. Legacy directory/create/update behavior is retained only for development compatibility and blocked in production. |
+| `/api/admin/identity-access` | Application-administrator-only identity synchronization, records, source/read-only identity view, assignments, access grants, exceptions, audit, suspend/reactivate, retry sync, and reconciliation. |
+| `/api/dev/personas` | Development-only test-persona list/create/reset; unavailable in production. |
+| `/api/units`, `/api/rating-chains` | Org structure and legacy chains. The evaluation-creation query accepts either the `rater` or `soldier` role and returns only caller-scoped, effective published assignments with a matching active compatibility chain. |
+| `/api/support-forms` | Support-form CRUD, assignment-aware form initiation/selection, entries, **artifact upload/flag/delete** (upload-ownership authorized), rater **entry confirmation**, completeness, finalize, counseling dates |
+| `/api/rating-scheme-assignments` | Admin-only draft, approval, publication, and prospective replacement of versioned assignments; validates eligibility, supplementary-review requirement, and effective-date overlap |
+| `/api/access-grants` | Access and Assistance lifecycle: scoped invitation, accept/decline, capability reduction, revocation, activity, and eligible-user search. Legacy `/api/delegates` remains a compatibility adapter during migration. |
+| `/api/support-form-uploads` | Whole-document upload pipeline; authenticated original-file viewing, safe reprocessing, **generate-from-entries**, generate-from-scratch, and suggestion review for the assigned rater/senior rater only; each suggestion captures an immutable evidence snapshot |
+| `/api/evaluations` | Eval lifecycle, section editing (auto-recomputes status), consistency check, and exact-role signing; assignment-backed creation creates an immutable official snapshot and consumes a support form atomically |
 | `/api/pdf` | DA-form PDF export (chain-authorized) |
 | `/api/dashboard`, `/api/analytics`, `/api/commander` | Compliance/velocity analytics (role-gated) |
 | `/api/milestones`, `/api/notifications`, `/api/delegates`, `/api/comments`, `/api/support` | Supporting features (milestone actions are rating-chain-authorized and audited) |
@@ -171,20 +179,20 @@ All routes are mounted under `/api`. Every route except `/api/health` requires a
 
 ## 6. The AI pipelines
 
-There are **two** distinct generation paths plus artifact captioning, all sharing the same review-and-provenance discipline. Every suggestion persists to `AIBulletSuggestion` and requires human accept/edit/reject before it can reach the form.
+There are **three** distinct drafting paths plus artifact captioning, all sharing the same review-and-provenance discipline. Every suggestion persists to `AIBulletSuggestion` and requires human accept/edit/reject before it can reach the form.
 
 ### A. Artifact captioning (continuous, at upload)
 When a soldier attaches proof to an entry, `generateArtifactCaption()` runs **once**, fire-and-forget:
-- **Image** → Claude vision extracts a short factual caption.
-- **PDF** → `pdf-parse` extracts text → Claude summarizes it factually.
+- **Image** → OpenAI vision extracts a short factual caption.
+- **PDF** → `pdf-parse` extracts text → OpenAI summarizes it factually.
 - Result stored on the artifact and **reused** as text context in later bullet generation — images are never re-sent per generation, keeping generation fast and cheap.
 
 ### B. Bullet generation from logged entries (the primary rater path)
 `generateBulletsFromEntries()`:
-1. Server re-authorizes the request: the caller must be the rater/senior rater/reviewer on the evaluation's rating chain, and every submitted entry ID is re-verified against the evaluation's own linked support form (never trusted from the client).
+1. Server re-authorizes the request: the caller must be the assigned rater or senior rater, and every submitted entry ID is re-verified against the evaluation's own linked support form (never trusted from the client).
 2. Loads the rater-selected `SupportFormEntry` rows and their artifact captions, and captures them as an **immutable source snapshot** on each resulting suggestion.
 3. Retrieves relevant regulation text via `RegulationChunk` search (RAG).
-4. Prompts Claude with soldier context + the evidence + doctrine to produce five ranked, DA-format candidates.
+4. Prompts OpenAI with soldier context + the rater-selected evidence + doctrine to produce up to five ranked, DA-format candidates. This selected-entry path is distinct from whole-document processing, which produces at most one candidate per extracted fact.
 5. Runs each candidate through a **deterministic unsupported-fact check** (no LLM in the loop) and stores any findings on the suggestion.
 6. Returns a `hasFlaggedArtifacts` signal if any selected entry had a soldier-flagged artifact, so the UI can warn the rater.
 7. Persists candidates as `AIBulletSuggestion` (status `PENDING_REVIEW`).
@@ -193,10 +201,12 @@ The same snapshot-capture and unsupported-fact check apply to the free-text "gen
 
 ### C. Whole-document upload pipeline (three stages)
 For a scanned/handwritten support form uploaded as a single file:
-1. **Stage 1 — Vision extraction:** Claude reads the form (including handwriting) into raw labeled text.
-2. **Stage 2 — Parse:** Claude classifies the raw text into typed entries (`AIExtractedEntry`) mapped to the six dimensions.
-3. **Stage 3 — Generate:** per dimension, RAG-grounded bullet candidates are produced and stored for rater review.
+1. **Stage 1 — Vision extraction:** OpenAI reads the form (including handwriting) into raw labeled text.
+2. **Stage 2 — Parse:** OpenAI classifies the raw text into typed entries (`AIExtractedEntry`) mapped to the six dimensions.
+3. **Stage 3 — Generate:** each extracted fact is independently converted into at most one RAG-grounded candidate in its classified dimension. Empty dimensions produce no generic content; the candidate retains the exact extracted fact as its source snapshot.
 Status is tracked through `SupportFormUploadStatus` so the UI can poll progress.
+
+The rater can open the **Original support form** from the section builder through an authenticated file endpoint and can optionally disclose a suggestion's source fact. These controls support review; they do not make provenance text mandatory visual clutter on every candidate. A completed upload can be safely reprocessed into a new run without deleting the prior run or its audit history.
 
 ### The guardrails (enforced in code, not just policy)
 1. **Evidence-in:** generation requires either selected logged entries or an explicit rater description.
@@ -215,8 +225,8 @@ Example: a rater generates bullets from three logged accomplishments.
 1. **Frontend** — the section builder calls `api.post('/support-form-uploads/:evalId/generate-from-entries', { sectionKey, entryIds, soldierInfo })`. The typed client attaches the Supabase bearer token.
 2. **Auth middleware** — verifies the JWT with Supabase, loads the EES `User`, attaches it to the request.
 3. **Zod** — validates the body (section enum, non-empty entry IDs, required soldier fields).
-4. **Chain authorization** — the route re-verifies the caller is the rater/senior rater/reviewer on the evaluation's rating chain, and re-fetches + re-authorizes every submitted entry ID against the evaluation's own linked support form.
-5. **Domain logic** — `generateBulletsFromEntries()` loads entries + captions, captures the immutable source snapshot, runs regulation RAG, calls Claude, computes the flagged-artifact signal, and runs the deterministic unsupported-fact check.
+4. **Relationship authorization** — the route re-verifies the caller is the assigned rater or senior rater, and re-fetches + re-authorizes every submitted entry ID against the evaluation's own linked support form.
+5. **Domain logic** — `generateBulletsFromEntries()` loads entries + captions, captures the immutable source snapshot, runs regulation RAG, calls OpenAI, computes the flagged-artifact signal, and runs the deterministic unsupported-fact check.
 6. **Persistence** — candidates saved as `AIBulletSuggestion (PENDING_REVIEW)` with their snapshot and any unsupported-fact warnings; entries marked `usedInEvalId` for visibility.
 7. **Response** — suggestions + `hasFlaggedArtifacts` returned as JSON.
 8. **Frontend** — suggestions (with any warnings) render in the review panel; the rater accepts/edits/rejects. Accept/edit is a single atomic, chain-authorized transaction that writes the final bullet, its `BulletSource`, and its full provenance chain to the `EvalSection` — the client never assembles this itself.
@@ -229,7 +239,7 @@ Example: a rater generates bullets from three logged accomplishments.
 - **Authorization — three layers:**
   1. **Database:** Supabase **Row-Level Security** policies (`supabase/rls-policies*.sql`).
   2. **API:** `requireAuth` + `requireRole` middleware on protected routers (e.g., analytics is role-gated; a senior-rater-only endpoint 403s otherwise).
-  3. **Domain:** a shared `RatingChain`-authorization helper determines *which* evaluation a given user can act on and in what capacity, applied consistently across generation, review, signing, PDF export, and milestone actions — not just enforced ad hoc per route.
+  3. **Domain:** centralized authorization policies determine *which* relationship a user may act through. Legacy records use the persisted chain during migration; assignment-backed evaluations use their immutable snapshot. Supplementary reviewers cannot author bullets or confirm entries. Evaluation comments require a direct relationship or an explicit scoped non-evaluative-comment capability.
 
 See [05 — Security & Compliance](./05-security-and-compliance.md) for the full treatment.
 
@@ -237,8 +247,8 @@ See [05 — Security & Compliance](./05-security-and-compliance.md) for the full
 
 ## 9. Environments & operations
 
-- **Config** via environment variables (`.env`): `DATABASE_URL` / `DIRECT_URL`, `SUPABASE_*`, `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL`, `CORS_ORIGIN`. `config/env.ts` centralizes loading and warns on missing values.
-- **Database migrations** via Prisma (`prisma migrate`); demo data via `seed.ts`.
+- **Config** via environment variables (`.env`): `DATABASE_URL` / `DIRECT_URL`, `SUPABASE_*`, `OPENAI_API_KEY` / `OPENAI_MODEL`, `CORS_ORIGIN`. `config/env.ts` centralizes loading and warns on missing values.
+- **Database schema synchronization** uses `prisma db push` in this environment because migration history is not initialized; demo data is managed by `seed.ts`.
 - **Regulation ingest** (`ingest:regulations`) populates the RAG corpus.
 - **Local dev:** backend `npm run dev:real` (port 4000), frontend `npm run dev` (port 3000). A mock server exists for frontend-only work.
 - **Type safety** end to end: Zod at the API boundary, Prisma types in the domain, and TypeScript domain types mirrored on the front end.
@@ -251,7 +261,7 @@ See [05 — Security & Compliance](./05-security-and-compliance.md) for the full
 |----------|-----------|
 | Backend owns all logic; no Next API routes | One auditable source of truth for regulation + authorization; reusable API |
 | Caption artifacts once, reuse the text | Fast, cheap generation; deterministic context; no repeated vision calls |
-| Support form anchored to `RatingChain`, not a date string | Chains outlive annual cycles; "one active unconsumed form per chain" models reality (incl. PCS) cleanly |
+| Versioned assignment plus immutable evaluation snapshot | Assignment changes apply prospectively; existing evaluation authority cannot drift after creation |
 | Two-tier completeness (hard gate / soft indicator) | Unlock the evaluation without letting one slow dimension block a career |
 | One wizard/template, branch on `evalCategory` | The six dimensions are identical NCO vs officer; avoids duplicate UIs |
 | AI provenance stored permanently | Trust, defensibility, and the anti-autopilot guarantee |

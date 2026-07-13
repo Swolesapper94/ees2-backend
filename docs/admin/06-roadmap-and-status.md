@@ -33,7 +33,7 @@ EES 2.0 is a **working, integrated prototype** with the core evidence-capture �
 - ✅ Section builder with three drafting paths: **generate from selected logged entries**, generate from scratch, and manual entry.
 - ✅ **Soldier Accomplishments widget** — the rater-facing bridge that turns logged, proof-backed entries into draft bullets.
 - ✅ AI bullet review panel (accept / edit / reject) with mandatory-review gating and provenance tagging.
-- ✅ Whole-document upload pipeline (vision extract → parse → generate) for scanned/handwritten support forms.
+- ✅ Whole-document upload pipeline (vision extract → parse → one evidence-grounded candidate per extracted fact) for scanned/handwritten support forms, with authenticated original-document viewing and safe reprocessing.
 - ✅ Regulation-grounded generation (RAG over AR 623-3 / DA PAM 623-3).
 
 ### Compliance, integrity, and analytics
@@ -42,6 +42,7 @@ EES 2.0 is a **working, integrated prototype** with the core evidence-capture �
 - ✅ Content-hash signatures with stale-signature detection.
 - ✅ Senior-rater profile (most-qualified cap) tracking.
 - ✅ Rating-chain-authorized signing — a user must hold the specific role they attempt to sign as.
+- ✅ Assignment-backed evaluation selector — creation shows only the caller's effective published assignments with a matching active compatibility chain, preventing duplicate historical chain choices.
 - ✅ Evaluation status **automatically derived** from real section-completion and signature progress (no manually-set, driftable status field).
 - ✅ Audit log covering signatures, submissions, entry confirmations, suggestion review decisions, and status transitions.
 - ✅ Dashboard/commander analytics (counseling compliance, evaluation velocity, due-date windows, and HRC-return trends), role-gated.
@@ -58,6 +59,17 @@ EES 2.0 is a **working, integrated prototype** with the core evidence-capture �
 - ✅ Split-stack app (Next.js frontend / Express backend), Supabase auth + Postgres + storage.
 - ✅ Three-layer authorization (RLS → role middleware → rating-chain domain rules), consistently applied across generation, review, signing, PDF export, milestone actions, and artifact ownership.
 - ✅ Rank insignia display with graceful fallback; personalized dashboard; profile pictures.
+- ✅ Notification bell unread count plus in-place refresh after dev notification seeding; no page reload or profile remount is required.
+- ✅ **Identity and Access Administration** — read-only authoritative identity inspection, sync status, exception tracking, EES access suspension/reactivation, administrative scopes, reconciliation requests, assignment/access-grant inspection, and audit history. Test personas are isolated to a non-production `/dev/personas` surface.
+
+### Regulatory assignment and lifecycle controls (2026-07-11)
+- ✅ Versioned `RatingSchemeAssignment` lifecycle: draft, approval, publication, and prospective replacement with effective-date overlap protection.
+- ✅ Rating-official eligibility and supplementary-review requirement validation before an assignment can be published.
+- ✅ Immutable `EvaluationRatingSnapshot` creation for assignment-backed evaluations; the snapshot is the future authorization source for that record.
+- ✅ Explicit support-form lifecycle, entry authorship/locking metadata, evaluation disposition, and transactionally enforced form consumption for assignment-backed creation.
+- ✅ Central relationship-based policies now protect support-form reads/writes, entry creation/confirmation, evaluation access, edits, and signatures. Supplementary reviewers cannot generate bullets or confirm entries.
+- ✅ Dedicated snapshot-scoped `/api/dashboard/reviews-required` work queue for pending supplementary review.
+- ✅ The pre-existing 10 draft evaluations and 11 support forms were retained but quarantined after a dry-run classification; they are excluded from normal active workflows.
 
 ---
 
@@ -72,6 +84,10 @@ An internal audit traced every capability against its actual implementation (not
 
 This pass did not change the overall production-readiness posture (see §8 of [05 — Security & Compliance](./05-security-and-compliance.md)) but meaningfully strengthens the authorization and integrity foundation the accreditation process will review.
 
+### 2b. Regulatory migration status (2026-07-11)
+
+The compliance foundation is implemented additively. Legacy `RatingChain` relationships remain available for compatibility and are still used by portions of the dashboard and older records. New regulated workflows can use published `RatingSchemeAssignment` records and immutable evaluation snapshots. The existing demo data was quarantined rather than rewritten or deleted because it contains duplicate form consumption and rating relationships that do not satisfy the new validation rules.
+
 ---
 
 ## 3. In progress / partial (⏳)
@@ -81,6 +97,10 @@ This pass did not change the overall production-readiness posture (see §8 of [0
 - ⏳ **Zone A CTA gating (frontend)** — disabling "Initiate My Evaluation" until the support form is complete, with a visible missing-items checklist (the backend gate is already authoritative).
 - ⏳ **Rank insignia asset set** — a subset of ranks still fall back to text badges (e.g., SGM, warrant-officer ranks, junior enlisted) pending sourced artwork.
 - ⏳ **Officer-typed seed/e2e coverage** — seed data currently exercises NCO forms; officer-path fixtures and end-to-end tests are pending.
+- ⏳ **Compliant replacement demo data** — add the MAJ persona selected for the valid senior-rater topology, publish valid assignments, create assignment-backed support forms, and replace the quarantined legacy demo workflow.
+- ⏳ **Snapshot-first read migration** — move remaining dashboard, formation, PDF, comments, milestones, and legacy-chain authorization paths to immutable evaluation snapshots where the resource has one.
+- ⏳ **Authoritative personnel integration** — connect approved personnel sources (for example IPPS-A/identity providers) to replace development-seed sync records. Production admin screens intentionally expose `NOT_CONFIGURED`/exception states until that integration is authorized and available.
+- ⏳ **Role terminology migration** — migrate stored legacy `REVIEWER` values and frontend/API types to `SUPPLEMENTARY_REVIEWER` without breaking historical records.
 
 ---
 
@@ -94,8 +114,8 @@ Roughly in priority order:
 4. 🔜 **Mobile-optimized quick entry** — make in-the-moment logging (photo of a certificate, one-line accomplishment) as frictionless as possible, since continuous capture is the behavioral crux of the whole model.
 5. 🔜 **Expanded analytics** — trend and talent-management views over the newly structured performance data.
 6. 🔜 **Broader form coverage** — deepen the officer (67-10 series) builder to parity with the NCO builder.
-7. 🔜 **Structured validation severities** — evolve the pre-submission consistency check from flat warnings into blocking/confirmation-required/warning/suggestion tiers, and extend prohibited-language screening (currently drafted but not yet enforced server-side) into the backend check.
-8. 🔜 **Broader audit coverage** — extend the audit log to entry CRUD, artifact lifecycle, and PDF export (currently covers signatures, submissions, confirmations, suggestion decisions, and status transitions).
+7. 🔜 **Acceptance and route tests** — add explicit positive and negative coverage for assignment eligibility, snapshot-only review access, support-form locking/consumption, and quarantine exclusion.
+8. 🔜 **Broader audit coverage** — extend the audit log to every entry update and lifecycle change, then verify the full regulatory audit report end to end.
 9. 🔜 **Accreditation track** — ATO scoping, penetration testing, and DoD security control assessment for a production pilot.
 
 ---
@@ -110,7 +130,7 @@ Roughly in priority order:
 
 ## 6. Known constraints & dependencies
 
-- **`ANTHROPIC_API_KEY` required** — AI features fail closed without it; it must be present in the backend environment.
+- **`OPENAI_API_KEY` required** — AI features fail closed without it; it must be present in the backend environment.
 - **iPERMS/IPPS-A** integration depends on authorized access to closed DoD systems; until then, the self-attestation flag is the honest interim control.
 - **Accreditation gates production** — live personnel data requires completion of the security/accreditation activities in [05](./05-security-and-compliance.md) §8.
 

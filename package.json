@@ -2,7 +2,7 @@
   "name": "ees2-backend",
   "version": "0.1.0",
   "private": true,
-  "description": "EES 2.0 backend — Express + TypeScript API (Prisma, Supabase auth, Claude AI, PDF)",
+  "description": "EES 2.0 backend — Express + TypeScript API (Prisma, Supabase auth, OpenAI, PDF)",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch mock-server.ts",
@@ -16,10 +16,12 @@
     "prisma:studio": "prisma studio",
     "prisma:migrate": "prisma migrate dev",
     "seed": "tsx prisma/seed.ts",
+    "seed:dashboard": "tsx scripts/seed-dashboard-analytics-data.ts",
+    "seed:access-assistance": "tsx scripts/seed-access-assistance-data.ts",
+    "test:access-assistance": "tsx scripts/test-access-assistance.ts",
     "ingest:regulations": "tsx src/lib/regulations/ingest.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.106.0",
     "@prisma/client": "^6.1.0",
     "@react-pdf/renderer": "^4.1.5",
     "@supabase/supabase-js": "^2.47.10",

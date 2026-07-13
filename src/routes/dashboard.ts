@@ -4,7 +4,7 @@ import { asyncHandler, HttpError } from "@/middleware/error";
 import { requireAuth } from "@/middleware/auth";
 import { resolveFormType } from "@/lib/utils/role-resolver";
 import { isNcoGrade, srMqCapPercentFor } from "@/lib/utils/grade";
-import { getOpenAI } from "@/lib/ai/claude";
+import { getOpenAI } from "@/lib/ai/openai";
 import { env } from "@/config/env";
 import { addDays, differenceInDays, startOfMonth, subMonths, format } from "date-fns";
 import type { MilestoneType } from "@prisma/client";
@@ -39,7 +39,7 @@ async function buildDashboardRecap(userId: string, lastLoginAt: Date | null): Pr
       select: { title: true, message: true, createdAt: true },
     }),
     prisma.evaluation.findMany({
-      where: { updatedAt: changedSince, ratingChain: chainScope },
+      where: { updatedAt: changedSince, disposition: "ACTIVE", ratingChain: chainScope },
       orderBy: { updatedAt: "desc" },
       take: 4,
       select: {
@@ -51,7 +51,7 @@ async function buildDashboardRecap(userId: string, lastLoginAt: Date | null): Pr
     prisma.supportFormEntry.findMany({
       where: {
         updatedAt: changedSince,
-        supportForm: { ratingChain: chainScope },
+        supportForm: { disposition: "ACTIVE", ratingChain: chainScope },
       },
       orderBy: { updatedAt: "desc" },
       take: 4,
@@ -86,7 +86,7 @@ async function buildDashboardRecap(userId: string, lastLoginAt: Date | null): Pr
   try {
     const completion = await getOpenAI().chat.completions.create({
       model: env.openaiModel,
-      max_tokens: 120,
+      max_completion_tokens: 120,
       messages: [
         {
           role: "system",
@@ -136,6 +136,7 @@ dashboardRouter.get(
         seniorRater: true,
         reviewer: true,
         evaluations: {
+          where: { disposition: "ACTIVE" },
           orderBy: { createdAt: "desc" },
           take: 1,
           include: {
@@ -148,7 +149,7 @@ dashboardRouter.get(
 
     // Active support form entry count for myself
     const myActiveSupportForm = await prisma.supportForm.findFirst({
-      where: { soldierId: userId, isActive: true },
+      where: { soldierId: userId, isActive: true, disposition: "ACTIVE" },
       include: { _count: { select: { entries: true } } },
     });
 
@@ -162,7 +163,7 @@ dashboardRouter.get(
         ratedSoldier: {
           include: {
             supportForms: {
-              where: { isActive: true },
+              where: { isActive: true, disposition: "ACTIVE" },
               take: 1,
               include: { _count: { select: { entries: true } } },
             },
@@ -171,6 +172,7 @@ dashboardRouter.get(
         rater: true,
         seniorRater: true,
         evaluations: {
+          where: { disposition: "ACTIVE" },
           orderBy: { createdAt: "desc" },
           take: 1,
           include: {
@@ -260,6 +262,38 @@ dashboardRouter.get(
   }),
 );
 
+// GET /api/dashboard/reviews-required
+// Immutable snapshot scope prevents a later assignment change from exposing
+// historical evaluations to a different supplementary reviewer.
+dashboardRouter.get(
+  "/reviews-required",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const evaluations = await prisma.evaluation.findMany({
+      where: {
+        status: "PENDING_SUPPLEMENTARY_REVIEW",
+        disposition: "ACTIVE",
+        ratingSnapshot: { supplementaryReviewerId: req.user!.id },
+      },
+      include: {
+        ratingSnapshot: true,
+        ratingChain: { include: { ratedSoldier: { select: { id: true, rank: true, firstName: true, lastName: true } } } },
+      },
+      orderBy: { updatedAt: "asc" },
+    });
+    res.json(evaluations.map((evaluation) => ({
+      id: evaluation.id,
+      status: evaluation.status,
+      formType: evaluation.formType,
+      periodStart: evaluation.periodStart,
+      periodEnd: evaluation.periodEnd,
+      updatedAt: evaluation.updatedAt,
+      ratedSoldier: evaluation.ratingChain.ratedSoldier,
+      ratingSnapshot: evaluation.ratingSnapshot,
+    })));
+  }),
+);
+
 // ─────────────────────────────────────────────────────────────────
 // ANALYTICS ENDPOINTS — Dashboard Analytics Header
 // All scoped to the authenticated user's own rating activity.
@@ -307,6 +341,7 @@ dashboardRouter.get(
     const evals = await prisma.evaluation.findMany({
       where: {
         status: { in: ["COMPLETE", "SUBMITTED", "ACCEPTED"] },
+        disposition: "ACTIVE",
         ratingChain: { ratedSoldierId: userId },
       },
       include: {
@@ -357,6 +392,7 @@ dashboardRouter.get(
     const recentAccepted = await prisma.evaluation.findMany({
       where: {
         status: "ACCEPTED",
+        disposition: "ACTIVE",
         submittedAt: { not: null, gte: days90 },
         acceptedAt: { not: null },
         ratingChain: { OR: [{ raterId: userId }, { seniorRaterId: userId }] },
@@ -375,6 +411,7 @@ dashboardRouter.get(
     const priorAccepted = await prisma.evaluation.findMany({
       where: {
         status: "ACCEPTED",
+        disposition: "ACTIVE",
         submittedAt: { gte: days180, lt: days90 },
         acceptedAt: { not: null },
         ratingChain: { OR: [{ raterId: userId }, { seniorRaterId: userId }] },
@@ -398,6 +435,7 @@ dashboardRouter.get(
     const allSubmitted = await prisma.evaluation.findMany({
       where: {
         status: { in: ["SUBMITTED", "ACCEPTED", "RETURNED"] },
+        disposition: "ACTIVE",
         submittedAt: { not: null },
         ratingChain: { OR: [{ raterId: userId }, { seniorRaterId: userId }] },
       },
@@ -418,7 +456,7 @@ dashboardRouter.get(
       include: {
         ratedSoldier: true,
         evaluations: {
-          where: { status: { in: ["ACCEPTED", "COMPLETE"] }, reasonForSubmission: { contains: "Annual" } },
+          where: { status: { in: ["ACCEPTED", "COMPLETE"] }, disposition: "ACTIVE", reasonForSubmission: { contains: "Annual" } },
           orderBy: { periodEnd: "desc" },
           take: 1,
           select: { periodEnd: true, reasonForSubmission: true },
@@ -448,6 +486,7 @@ dashboardRouter.get(
       where: {
         type: { in: counselingTypes },
         evaluation: {
+          disposition: "ACTIVE",
           ratingChain: { raterId: userId, isActive: true },
         },
       },
@@ -470,6 +509,7 @@ dashboardRouter.get(
     const returnedEvals = await prisma.evaluation.findMany({
       where: {
         returns: { some: {} },
+        disposition: "ACTIVE",
         ratingChain: { OR: [{ raterId: userId }, { seniorRaterId: userId }] },
       },
       select: { id: true },
@@ -477,6 +517,7 @@ dashboardRouter.get(
     const totalSubmittedLifetime = await prisma.evaluation.count({
       where: {
         status: { in: ["SUBMITTED", "ACCEPTED", "RETURNED"] },
+        disposition: "ACTIVE",
         ratingChain: { OR: [{ raterId: userId }, { seniorRaterId: userId }] },
       },
     });
@@ -490,12 +531,14 @@ dashboardRouter.get(
     const unitReturnCount = await prisma.evaluation.count({
       where: {
         returns: { some: {} },
+        disposition: "ACTIVE",
         ratingChain: { rater: { unitId: req.user!.unitId ?? undefined } },
       },
     });
     const unitTotalSubmitted = await prisma.evaluation.count({
       where: {
         status: { in: ["SUBMITTED", "ACCEPTED", "RETURNED"] },
+        disposition: "ACTIVE",
         ratingChain: { rater: { unitId: req.user!.unitId ?? undefined } },
       },
     });
@@ -535,6 +578,7 @@ dashboardRouter.get(
       const evals = await prisma.evaluation.findMany({
         where: {
           status: "ACCEPTED",
+          disposition: "ACTIVE",
           submittedAt: { gte: monthStart, lt: monthEnd },
           acceptedAt: { not: null },
           ratingChain: { OR: [{ raterId: userId }, { seniorRaterId: userId }] },
@@ -587,6 +631,7 @@ dashboardRouter.get(
         evaluations: {
           where: {
             status: { in: ["ACCEPTED", "COMPLETE"] },
+            disposition: "ACTIVE",
             reasonForSubmission: { contains: "Annual" },
           },
           orderBy: { periodEnd: "desc" },
@@ -639,6 +684,7 @@ dashboardRouter.get(
     const completedEvals = await prisma.evaluation.findMany({
       where: {
         status: { in: ["COMPLETE", "SUBMITTED", "ACCEPTED"] },
+        disposition: "ACTIVE",
         ratingChain: { OR: [{ raterId: userId }, { seniorRaterId: userId }] },
       },
       include: {
@@ -702,6 +748,7 @@ dashboardRouter.get(
       where: {
         type: { in: types },
         evaluation: {
+          disposition: "ACTIVE",
           ratingChain: { raterId: userId, isActive: true },
         },
       },
@@ -761,6 +808,7 @@ dashboardRouter.get(
     const returns = await prisma.evaluationReturn.findMany({
       where: {
         evaluation: {
+          disposition: "ACTIVE",
           ratingChain: { OR: [{ raterId: userId }, { seniorRaterId: userId }] },
         },
       },
@@ -793,6 +841,7 @@ dashboardRouter.get(
     const totalSubmitted = await prisma.evaluation.count({
       where: {
         status: { in: ["SUBMITTED", "ACCEPTED", "RETURNED"] },
+        disposition: "ACTIVE",
         ratingChain: { OR: [{ raterId: userId }, { seniorRaterId: userId }] },
       },
     });
@@ -801,6 +850,7 @@ dashboardRouter.get(
     const unitReturns = await prisma.evaluationReturn.findMany({
       where: {
         evaluation: {
+          disposition: "ACTIVE",
           ratingChain: { rater: { unitId: req.user!.unitId ?? undefined } },
         },
       },
@@ -809,6 +859,7 @@ dashboardRouter.get(
     const unitTotalSubmitted = await prisma.evaluation.count({
       where: {
         status: { in: ["SUBMITTED", "ACCEPTED", "RETURNED"] },
+        disposition: "ACTIVE",
         ratingChain: { rater: { unitId: req.user!.unitId ?? undefined } },
       },
     });
@@ -844,6 +895,7 @@ dashboardRouter.get(
     const srEvals = await prisma.evaluation.findMany({
       where: {
         status: { in: ["SUBMITTED", "ACCEPTED", "COMPLETE"] },
+        disposition: "ACTIVE",
         ratingChain: { seniorRaterId: userId },
         seniorRaterRating: { not: null },
       },

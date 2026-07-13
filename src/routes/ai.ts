@@ -5,7 +5,7 @@
 // the frontend never called — confirmed via a repo-wide grep for its two
 // endpoints (`/ai/generate-bullets`, `/ai/refine-bullet`) before removal.
 //
-// The real, live pipeline is `src/lib/ai/support-form-pipeline.ts` (Claude,
+// The real, live pipeline is `src/lib/ai/support-form-pipeline.ts` (OpenAI,
 // regulation-RAG-grounded, writes to `AIBulletSuggestion` so output actually
 // enters the accept/edit/reject review flow). Do not resurrect this file —
 // extend the real pipeline instead. This file is no longer mounted in

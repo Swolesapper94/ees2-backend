@@ -18,7 +18,7 @@ It is built around one core belief: **the evaluation should be a byproduct of a 
 Each document stands alone. Start with whichever matches your role, then branch out.
 
 | # | Document | Best for | What it answers |
-|---|----------|----------|-----------------|
+| --- | --- | --- | --- |
 | 01 | [Executive Summary](./01-executive-summary.md) | Everyone — read first | Why does this exist? What problem does it solve? What's the vision? |
 | 02 | [System Overview](./02-system-overview.md) | Leaders, buyers, new team members | What does it actually do? Who uses it and how? |
 | 03 | [Technical Architecture](./03-technical-architecture.md) | Engineers, IT/security reviewers | How is it built? What's the stack, data model, and data flow? |
@@ -26,6 +26,12 @@ Each document stands alone. Start with whichever matches your role, then branch 
 | 05 | [Security & Compliance](./05-security-and-compliance.md) | Security, legal, compliance | Is it safe, auditable, and regulation-aligned? |
 | 06 | [Roadmap & Status](./06-roadmap-and-status.md) | Sponsors, PMs | What's built, what's next, and when? |
 | 07 | [Glossary](./07-glossary.md) | Everyone | What do all these Army and technical terms mean? |
+| 08 | [Data Flow & API Contract](./08-data-flow-and-api-contract.md) | Engineers, integration teams | Which API contracts, lifecycle states, and data relationships are authoritative? |
+| 09 | [Permission & Assignment Audit](./09-permission-and-assignment-audit.md) | Program leadership, administrators | What legacy data was remediated and what remains before a compliant demo dataset exists? |
+| 10 | [Regulatory Remediation Status](./10-regulatory-remediation-status.md) | Program leadership, administrators | What changed on 2026-07-11, what is quarantined, and what remains before activating a compliant demo workflow? |
+| 11 | [Workflow Test Runbook](./FLOWS.md) | Testers, administrators, engineering | How to seed and execute the rated-soldier, rater, senior-rater, supplementary-reviewer, and OER test paths. |
+| 12 | [Customer Manual Acceptance Test Plan](./12-customer-manual-acceptance-test-plan.md) | Customer evaluators, test leads | Checkbox-driven persona walkthrough, real support-form ingestion validation, and results handoff template. |
+| 13 | [Access and Assistance Implementation Note](./13-access-and-assistance-implementation-note.md) | Security reviewers, administrators | Legacy delegate inventory, compatibility migration, and scoped assistance design. |
 
 ---
 
@@ -37,10 +43,10 @@ The Army's evaluation process is high-stakes (it drives promotions, assignments,
 
 ## Three lenses on the same system
 
-- **Technical** — A split-stack web application: a Next.js front end, an Express/TypeScript API, a PostgreSQL database (via Supabase), Anthropic Claude for AI, and server-side PDF generation of the official DA forms. See [03 — Technical Architecture](./03-technical-architecture.md).
+- **Technical** — A split-stack web application: a Next.js front end, an Express/TypeScript API, a PostgreSQL database (via Supabase), OpenAI for AI, and server-side PDF generation of the official DA forms. See [03 — Technical Architecture](./03-technical-architecture.md).
 - **Practical** — A guided workflow for four roles (soldier, rater, senior rater, admin/commander) that mirrors the real Army rating chain and the real DA-form structure, with automatic milestone and compliance tracking. See [02 — System Overview](./02-system-overview.md).
 - **Business** — A force-multiplier that reclaims leader time, reduces HRC rejections and reprocessing, improves promotion-board fairness, and creates institutional memory the Army currently loses every PCS cycle. See [04 — Business Case](./04-business-case.md).
 
 ---
 
-*Documentation maintained by the EES 2.0 team. Last substantive update: July 2026 (evidence-to-bullet lifecycle hardening: rater confirmation, immutable source snapshots, unsupported-fact detection, full bullet provenance, automatically-derived evaluation status, and consistent rating-chain authorization across the API).*
+*Documentation maintained by the EES 2.0 team. Last substantive update: 2026-07-11 (versioned rating assignments, immutable evaluation snapshots, support-form lifecycle controls, reviewer restrictions, and legacy-record quarantine).*

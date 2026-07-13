@@ -1,5 +1,6 @@
 import { createApp } from "@/app";
 import { env } from "@/config/env";
+import { runAccessGrantLifecycleSweep } from "@/lib/access-assistance/scheduler";
 import { runMilestoneNudgeSweep } from "@/lib/milestones/scheduler";
 
 const app = createApp();
@@ -29,3 +30,18 @@ function sweep() {
 
 sweep();
 setInterval(sweep, MILESTONE_SWEEP_INTERVAL_MS);
+
+function sweepAccessGrants() {
+  runAccessGrantLifecycleSweep()
+    .then(({ expired, expiringNotified }) => {
+      if (expired > 0 || expiringNotified > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`[access-grant-sweep] expired ${expired}, sent ${expiringNotified} expiring notices`);
+      }
+    })
+    // eslint-disable-next-line no-console
+    .catch((err) => console.error("[access-grant-sweep] failed", err));
+}
+
+sweepAccessGrants();
+setInterval(sweepAccessGrants, MILESTONE_SWEEP_INTERVAL_MS);

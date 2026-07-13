@@ -9,7 +9,7 @@
 | Domain | Approach |
 |--------|----------|
 | **Authentication** | Supabase Auth (JWT); every request server-verified — no trust of client-declared identity |
-| **Authorization** | Three enforced layers: database Row-Level Security → API role middleware → rating-chain domain rules |
+| **Authorization** | Three enforced layers: database Row-Level Security → API role middleware → relationship/snapshot domain rules |
 | **Transport** | HTTPS; bearer-token auth on every non-health endpoint |
 | **Input validation** | Zod schema validation on every request body at the API boundary |
 | **HTTP hardening** | `helmet` security headers, configured `cors` allow-list, `morgan` request logging |
@@ -38,8 +38,8 @@ PostgreSQL **Row-Level Security** policies (`supabase/rls-policies*.sql`) constr
 ### Layer 2 — API (role middleware)
 `requireAuth` establishes identity; `requireRole(...)` restricts sensitive routers. For example, analytics/commander endpoints are role-gated, and a senior-rater-only endpoint returns **403** to non-senior-raters. Roles live on the `User` (`SOLDIER`, `RATER`, `SENIOR_RATER`, `REVIEWER`, `COMMANDER`, `ADMIN`, plus unit-leadership roles).
 
-### Layer 3 — Domain (the rating chain)
-Even with a valid role, *which* evaluation a user may act on — and in what capacity — is determined by the **`RatingChain`**. A rater can only act as rater on the soldiers in their chain; the same person may be a rated soldier elsewhere. This mirrors real Army authority and prevents cross-chain access. A shared chain-authorization helper applies this check consistently across the surface area where it matters most: bullet generation (including re-verifying that every submitted source-entry ID actually belongs to the evaluation's own support form, not merely trusting client input), suggestion review, signing (a user must hold the specific role they're attempting to sign as), PDF export, and milestone actions. Artifact upload, flagging, and deletion are separately authorized against the soldier who owns the underlying support form.
+### Layer 3 — Domain (relationship and immutable snapshot)
+Even with a valid global role, *which* evaluation a user may act on — and in what capacity — is determined by the specific relationship. Legacy records use the persisted `RatingChain` during migration. New assignment-backed evaluations use an immutable `EvaluationRatingSnapshot`, so a later assignment change cannot grant access to, or remove access from, an existing evaluation. Centralized authorization policies limit rater content to the rater, senior-rater content to the senior rater, and supplementary reviewers to their review/sign boundaries. Supplementary reviewers cannot generate bullets or confirm support-form entries. Artifact upload, flagging, and deletion remain separately authorized against the soldier who owns the underlying support form. Evaluation comments require a direct relationship or an explicit scoped `ADD_NON_EVALUATIVE_COMMENT` capability.
 
 ---
 
@@ -52,6 +52,10 @@ Evaluations are legal-weight records, so the system is built to answer "who did 
 - **Audit log (`AuditLog`)** records meaningful actions — signatures, submissions, entry confirmations, suggestion review decisions, evaluation-status transitions — for a tamper-evident history.
 - **AI provenance chain (`AIBulletSuggestion` / `EvalSection.bulletProvenance`).** Every AI-drafted suggestion permanently stores an **immutable snapshot** of the exact source text and artifact captions it was generated from, captured at generation time — a later edit or deletion of the underlying entry cannot retroactively change what the record shows the AI was given. Once accepted, that link (suggestion → source entries → evidence snapshot) is carried onto the final bullet itself, so any AI-touched bullet on a signed evaluation has a permanently reviewable "where did this come from" trail.
 - **Transactional, idempotent writes.** Accepting or editing an AI suggestion is a single atomic, conditional transaction — a duplicate or double-submitted request is rejected cleanly rather than silently creating a duplicate bullet or a lost update.
+- **Assignment and form integrity.** Published, effective-dated rating assignments are eligibility-validated before use. Assignment-backed evaluation creation captures an immutable official snapshot and consumes its support form in one transaction; duplicate form consumption is rejected.
+- **Legacy isolation.** Historical test records that lack the required snapshot are retained with `QUARANTINED` disposition and excluded from normal active workflows rather than being deleted or silently treated as compliant.
+- **Access and Assistance.** A helper always acts under their own authenticated account through an accepted, time-limited, capability-scoped resource grant. Assistance never transfers identity, signature, acknowledgment, rating authority, evidence-confirmation authority, or rating-chain authority. Delegated writes record actor, subject, grant, capability, and action in the audit log.
+- **Identity and Access Administration.** Application administrators manage EES access state, administrative scopes, synchronization/reconciliation requests, and exceptions. They do not edit authoritative personnel identity data or derive rating authority from static profile roles. Suspensions, reactivations, syncs, exception resolution, and reconciliation requests are audited.
 
 ---
 
@@ -66,6 +70,8 @@ The AI is deliberately constrained so it can never become an unaccountable autho
 5. **Doctrine grounding (RAG).** Generation is grounded in searchable AR 623-3 / DA PAM 623-3 text (`RegulationChunk`), reducing hallucination and keeping output regulation-aligned.
 6. **Unsupported-fact detection.** A deterministic, non-AI checker compares specific claims in a draft or edited bullet — numbers, percentages, dates, named schools, awards/rankings — against the evidence it was generated from, and flags anything it can't find. This is advisory (the rater decides how to resolve it), re-checked again at pre-submission validation, and never itself the sole arbiter of truth.
 7. **Prohibited-language screening.** Content barred by DA PAM 623-3 (e.g., references to protected characteristics) is screened against.
+8. **Whole-document source isolation.** The upload pipeline generates at most one candidate per extracted source fact and produces nothing for an unsupported/empty dimension. The original document is streamed only through an authenticated evaluation relationship endpoint; browser clients never receive a local `file://` path.
+9. **Administrative boundary.** Admin navigation is hidden unless the authenticated user has application-administrator access. Identity APIs return `403` before any summary count or record is sent to an unauthorized caller; the frontend renders a dedicated access-denied experience rather than a zeroed dashboard.
 
 ---
 
@@ -94,6 +100,9 @@ The system encodes regulation as software guardrails rather than relying on indi
 | **Rating-scale rules** | Grade-appropriate scale enforced (`RatingBinary` for SGT; `RatingFourLevel` for E6–E9) |
 | **Senior-rater profile cap** ("most qualified" ≤ limit) | `SeniorRaterProfile` distribution tracked; cap visualized and guarded |
 | **Signature order & integrity** | Chain-ordered, content-hash-protected signing with stale detection |
+| **Official eligibility and assignment versioning** | Published effective-dated assignment validates category/rank rules, review requirement, and overlap; evaluation captures immutable snapshot |
+| **Supplementary-review boundaries** | Reviewer is assigned per snapshot for evaluation review/sign; no bullet authoring or support-form entry confirmation. Evaluation comments require a direct relationship or an explicit scoped non-evaluative-comment capability. |
+| **Support-form lifecycle and reuse** | Explicit status/disposition plus atomic consumption on assignment-backed evaluation creation; legacy duplicates are quarantined |
 | **Prohibited content** | DA PAM 623-3 language screening |
 | **Pre-submission validation** | Consistency check catches contradictions, unresolved unsupported-fact claims, and regulation issues before signature |
 | **Correction routing** | `EvaluationReturn` + a RETURNED-state sub-flow model HRC/chain returns and reprocessing |

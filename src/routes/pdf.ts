@@ -4,7 +4,8 @@ import { asyncHandler, HttpError } from "@/middleware/error";
 import { requireAuth } from "@/middleware/auth";
 import { generateNCOERPDF } from "@/lib/pdf/generator";
 import type { EvalPdfData } from "@/lib/pdf/NCOERTemplate";
-import { requireEvalChainRole } from "@/lib/utils/chain-auth";
+import { authorizeDelegatedAction } from "@/lib/access-assistance/authorization";
+import { canViewEvaluation } from "@/lib/authorization-policies";
 
 export const pdfRouter = Router();
 
@@ -27,16 +28,6 @@ pdfRouter.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     if (!req.user) throw new HttpError(401, "Not authenticated");
-    // Only members of this evaluation's rating chain (or an ADMIN) may
-    // export its PDF — previously any authenticated user could download
-    // any evaluation by ID (MVP audit 5.15).
-    await requireEvalChainRole(req.params.id!, req.user, [
-      "RATER",
-      "SENIOR_RATER",
-      "REVIEWER",
-      "SOLDIER",
-    ]);
-
     const evaluation = await prisma.evaluation.findUnique({
       where: { id: req.params.id },
       include: {
@@ -47,6 +38,16 @@ pdfRouter.get(
       },
     });
     if (!evaluation) throw new HttpError(404, "Evaluation not found");
+    const directAccess = canViewEvaluation(req.user, evaluation, evaluation.ratingChain);
+    const delegatedAccess = directAccess
+      ? undefined
+      : await authorizeDelegatedAction({
+          actorUserId: req.user.id,
+          subjectUserId: evaluation.ratingChain.ratedSoldierId,
+          capability: "DOWNLOAD_WORKING_COPY",
+          evaluationId: evaluation.id,
+        });
+    if (!directAccess && !delegatedAccess?.allowed) throw new HttpError(404, "Evaluation not found");
 
     const soldier = evaluation.ratingChain.ratedSoldier;
     const rater = evaluation.ratingChain.rater;
@@ -84,7 +85,10 @@ pdfRouter.get(
         action: "PDF_EXPORTED",
         entityType: "Evaluation",
         entityId: evaluation.id,
-        metadata: { status: evaluation.status, isDraftPreview },
+        metadata: { status: evaluation.status, isDraftPreview, authorizationSource: delegatedAccess?.grant ? "DELEGATION" : "DIRECT" },
+        ...(delegatedAccess?.grant
+          ? { subjectUserId: evaluation.ratingChain.ratedSoldierId, delegationGrantId: delegatedAccess.grant.id, delegationCapability: "DOWNLOAD_WORKING_COPY" }
+          : {}),
       },
     });
 

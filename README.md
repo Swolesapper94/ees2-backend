@@ -1,7 +1,7 @@
 # EES 2.0 — Backend
 
 Express + TypeScript API for EES 2.0. Owns the database (Prisma/Postgres),
-Supabase auth verification, Claude bullet generation, the consistency check,
+Supabase auth verification, OpenAI bullet generation, the consistency check,
 and NCOER PDF generation.
 
 ## Stack
@@ -9,7 +9,7 @@ and NCOER PDF generation.
 - Express 4 + TypeScript
 - Prisma 6 (PostgreSQL via Supabase)
 - `@supabase/supabase-js` (server-side token verification, service role)
-- `@anthropic-ai/sdk` (Claude)
+- `openai` (text and vision generation)
 - `@react-pdf/renderer` (DA form PDF output)
 - Zod (request validation)
 
@@ -17,7 +17,7 @@ and NCOER PDF generation.
 
 ```bash
 npm install
-cp .env.example .env          # fill in DATABASE_URL, SUPABASE_*, ANTHROPIC_API_KEY
+cp .env.example .env          # fill in DATABASE_URL, SUPABASE_*, OPENAI_API_KEY
 npm run prisma:generate
 npm run prisma:push           # push schema to your Supabase DB
 npm run seed                  # optional demo data
@@ -47,7 +47,7 @@ Supabase bearer token: `Authorization: Bearer <access_token>`.
 | PATCH | `/api/evaluations/:id/sections/:section` | rating + bullets |
 | POST | `/api/evaluations/:id/consistency-check` | pre-submission flags |
 | POST | `/api/evaluations/:id/sign` | parallel signing |
-| POST | `/api/ai/generate-bullets` | Claude generation (audited) |
+| POST | `/api/ai/generate-bullets` | Deprecated route; use support-form upload generation instead |
 | POST | `/api/ai/refine-bullet` | single-bullet refinement |
 | GET | `/api/pdf/evaluations/:id` | download NCOER PDF |
 

@@ -30,9 +30,6 @@ export const env = {
 
   openaiApiKey: required("OPENAI_API_KEY"),
   openaiModel: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
-
-  anthropicApiKey: required("ANTHROPIC_API_KEY", ""), // Optional fallback
-  anthropicModel: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6",
 } as const;
 
 export const isProd = env.nodeEnv === "production";

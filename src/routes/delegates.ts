@@ -57,41 +57,12 @@ delegatesRouter.get(
   }),
 );
 
-const createDelegateSchema = z.object({
-  delegateUserId: z.string().min(1),
-  accessLevel: z.enum(["VIEW_ONLY", "PUSH_ALONG"]).default("VIEW_ONLY"),
-  effectiveDate: z.coerce.date(),
-  expiryDate: z.coerce.date().optional(),
-  appointedReason: z.string().optional(),
-});
-
 // POST /api/delegates — appoint a delegate
 delegatesRouter.post(
   "/",
   requireAuth,
   asyncHandler(async (req, res) => {
-    if (!req.user) throw new HttpError(401, "Not authenticated");
-    const body = createDelegateSchema.parse(req.body);
-
-    if (body.delegateUserId === req.user.id) {
-      throw new HttpError(400, "Cannot appoint yourself as a delegate");
-    }
-
-    const delegate = await prisma.delegate.upsert({
-      where: { principalId_delegateUserId: { principalId: req.user.id, delegateUserId: body.delegateUserId } },
-      update: { ...body, isActive: true },
-      create: { principalId: req.user.id, ...body },
-      include: {
-        delegateUser: { select: { id: true, firstName: true, lastName: true, rank: true } },
-        principal: { select: { firstName: true, lastName: true, rank: true } },
-      },
-    });
-
-    // Notify the appointed delegate
-    const principalName = `${(delegate as typeof delegate & { principal: { rank: string; firstName: string; lastName: string } }).principal.rank} ${(delegate as typeof delegate & { principal: { firstName: string; lastName: string } }).principal.firstName} ${(delegate as typeof delegate & { principal: { firstName: string; lastName: string } }).principal.lastName}`;
-    await Notifications.delegateAppointed(body.delegateUserId, principalName, body.accessLevel);
-
-    res.status(201).json(delegate);
+    throw new HttpError(410, "New delegate appointments have moved to Access and Assistance. Use /api/access-grants for scoped, capability-limited access grants.");
   }),
 );
 
@@ -109,6 +80,7 @@ delegatesRouter.patch(
     const body = updateDelegateSchema.parse(req.body);
     const delegate = await prisma.delegate.findUnique({ where: { id: req.params.id } });
     if (!delegate) throw new HttpError(404, "Delegate not found");
+    if (delegate.delegationType) throw new HttpError(410, "Scoped Access and Assistance grants must be updated through /api/access-grants.");
     if (delegate.principalId !== req.user?.id) throw new HttpError(403, "Forbidden");
 
     const updated = await prisma.delegate.update({
@@ -126,6 +98,7 @@ delegatesRouter.delete(
   asyncHandler(async (req, res) => {
     const delegate = await prisma.delegate.findUnique({ where: { id: req.params.id } });
     if (!delegate) throw new HttpError(404, "Delegate not found");
+    if (delegate.delegationType) throw new HttpError(410, "Scoped Access and Assistance grants must be revoked through /api/access-grants.");
     if (delegate.principalId !== req.user?.id) throw new HttpError(403, "Forbidden");
 
     const fullDelegate = await prisma.delegate.findUnique({
@@ -156,6 +129,7 @@ delegatesRouter.post(
       include: { principal: { select: { firstName: true, lastName: true } } },
     });
     if (!delegate) throw new HttpError(404, "Delegate not found");
+    if (delegate.delegationType) throw new HttpError(410, "Scoped Access and Assistance reminders must use an explicit grant capability.");
     if (delegate.delegateUserId !== req.user?.id) throw new HttpError(403, "Forbidden");
     if (delegate.accessLevel !== "PUSH_ALONG") throw new HttpError(403, "PUSH_ALONG access required");
 
@@ -166,7 +140,7 @@ delegatesRouter.post(
         action: "DELEGATE_REMINDER_SENT",
         entityType: "Delegate",
         entityId: delegate.id,
-        details: {
+        metadata: {
           principalName: `${delegate.principal.firstName} ${delegate.principal.lastName}`,
           message: "Delegate flagged eval as needing attention",
         },

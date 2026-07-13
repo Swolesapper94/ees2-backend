@@ -23,7 +23,7 @@ capture, and parallel signing workflow. Demo target: HRC program manager.
 | ORM | Prisma | Type-safe schema-as-code, clean migrations |
 | Auth | Supabase Auth | Email/password for MVP — swap for CAC/PKI later |
 | UI Components | shadcn/ui + Tailwind CSS | Accessible, professional, not templated |
-| AI | Anthropic Claude API (`claude-sonnet-4-6`) | Core product IP |
+| AI | OpenAI API (`OPENAI_MODEL`) | Core product IP |
 | PDF | `@react-pdf/renderer` | React → DA-form-accurate PDF output |
 | Deployment | Vercel + Supabase | Both free tier sufficient for demo |
 
@@ -41,7 +41,7 @@ cd ees2
 # 2. Core dependencies
 npm install @prisma/client prisma
 npm install @supabase/supabase-js @supabase/ssr
-npm install @anthropic-ai/sdk
+npm install openai
 npm install @react-pdf/renderer
 npm install zustand
 npm install react-hook-form @hookform/resolvers zod
@@ -73,7 +73,8 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 DATABASE_URL=postgresql://postgres:[password]@db.[project].supabase.co:5432/postgres
 DIRECT_URL=postgresql://postgres:[password]@db.[project].supabase.co:5432/postgres
-ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-5.4-mini-2026-03-17
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
@@ -84,7 +85,8 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 DATABASE_URL=
 DIRECT_URL=
-ANTHROPIC_API_KEY=
+OPENAI_API_KEY=
+OPENAI_MODEL=
 NEXT_PUBLIC_APP_URL=
 ```
 
@@ -536,7 +538,7 @@ model AiGeneration {
   // What support form entries were selected as context
   entryIds        String[]
 
-  // What Claude returned
+  // What OpenAI returned
   outputBullets   String[]
 
   // What the user did with each bullet
@@ -683,7 +685,7 @@ ees2/
 │   │   │   ├── client.ts
 │   │   │   └── server.ts
 │   │   ├── ai/
-│   │   │   ├── claude.ts
+│   │   │   ├── openai.ts
 │   │   │   ├── prompts.ts
 │   │   │   └── consistency-check.ts
 │   │   ├── pdf/generator.ts
@@ -1116,7 +1118,7 @@ Note: Before building the PDF template, confirm current form edition on APD
 ### Phase 4 — AI Bullet Generation (Week 4–5)
 - [ ] GuidedQuestionsForm — required before generation
 - [ ] Support form entry selector
-- [ ] generate-bullets API route (Claude)
+- [ ] generate-bullets API route (OpenAI)
 - [ ] BulletStagingPanel — AI output, not auto-inserted
 - [ ] Bullet source tracking (HUMAN / AI_MODIFIED / AI_UNMODIFIED)
 - [ ] Edit-required soft prompt for unmodified AI bullets
@@ -1162,7 +1164,7 @@ cd ees2
 
 npm install @prisma/client prisma \
   @supabase/supabase-js @supabase/ssr \
-  @anthropic-ai/sdk \
+  openai \
   @react-pdf/renderer \
   zustand \
   react-hook-form @hookform/resolvers zod \

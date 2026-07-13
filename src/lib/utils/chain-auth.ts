@@ -12,6 +12,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { HttpError } from "@/middleware/error";
+import { canConfirmSupportFormEntry, canViewEvaluation } from "@/lib/authorization-policies";
 import type { RatingChain } from "@prisma/client";
 
 export type ChainRole = "RATER" | "SENIOR_RATER" | "REVIEWER" | "SOLDIER";
@@ -60,9 +61,7 @@ export async function requireEvalChainRole(
   });
   if (!evaluation) throw new HttpError(404, "Evaluation not found");
 
-  if (user.roles.includes("ADMIN")) return evaluation;
-
-  if (!chainHasRole(evaluation.ratingChain, user.id, allowedRoles)) {
+  if (!canViewEvaluation(user as never, evaluation, evaluation.ratingChain) || !chainHasRole(evaluation.ratingChain, user.id, allowedRoles)) {
     throw new HttpError(403, "You are not authorized for this evaluation.");
   }
   return evaluation;
@@ -82,8 +81,6 @@ export async function requireRatingChainRole(
     where: { id: ratingChainId },
   });
   if (!chain) throw new HttpError(404, "Rating chain not found");
-
-  if (user.roles.includes("ADMIN")) return chain;
 
   if (!chainHasRole(chain, user.id, allowedRoles)) {
     const roleNames = allowedRoles.join(", ");

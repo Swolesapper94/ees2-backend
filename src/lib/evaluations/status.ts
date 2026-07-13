@@ -61,12 +61,12 @@ export async function recomputeEvalStatus(
     next = "DRAFT";
   } else if (!allComplete || !isSigned("RATER")) {
     next = "RATER_IN_PROGRESS";
-  } else if (evaluation.requiresSupplementaryReview && !isSigned("REVIEWER")) {
-    next = "PENDING_SUPPLEMENTARY_REVIEW";
   } else if (!isSigned("SENIOR_RATER")) {
     next = "PENDING_SENIOR_RATER";
   } else if (!isSigned("SOLDIER")) {
     next = "PENDING_SOLDIER_ACK";
+  } else if (evaluation.requiresSupplementaryReview && !isSigned("REVIEWER")) {
+    next = "PENDING_SUPPLEMENTARY_REVIEW";
   } else {
     next = "COMPLETE";
   }

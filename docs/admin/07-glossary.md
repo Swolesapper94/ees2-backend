@@ -100,7 +100,11 @@
 
 **Bearer token** — The Supabase-issued JWT sent on every API request (`Authorization: Bearer <token>`) and verified server-side.
 
-**Claude** — Anthropic's AI model family (here, `claude-sonnet-4-6`), used for text generation and vision (reading handwritten forms, captioning artifacts).
+**Access grant** — A revocable, accepted, time-limited, capability-limited grant that lets a person assist with one scoped support form, evaluation, assignment, or approved administrative unit scope. It does not make the helper a rating official or allow impersonation.
+
+**Access and Assistance** — The user-facing feature for managing people helping me and people I assist. Every assistant action is recorded under the helper's own account.
+
+**OpenAI** — The configured provider for text generation and vision, used for support-form extraction, artifact captioning, and rater bullet suggestions through `OPENAI_API_KEY` and `OPENAI_MODEL`.
 
 **Express** — The Node.js web framework running the backend API.
 

@@ -7,11 +7,12 @@
  *
  * The caption is stored on the artifact and reused as text context in every
  * subsequent bullet-generation call — we do NOT re-send the raw image/PDF to
- * Claude on each generation, which keeps prompts fast and cheap.
+ * OpenAI on each generation, which keeps prompts fast and cheap.
  */
 
 import { prisma } from "@/lib/prisma";
-import { extractTextFromImage, callClaudeForJson } from "./claude";
+import { extractTextFromImage, callOpenAIForJson } from "./openai";
+import { extractPdfText, sanitizeTextForStorage } from "@/lib/pdf/extract-text";
 
 const CAPTION_SYSTEM_PROMPT = `You are reading proof/evidence a soldier attached to a support form entry
 (a certificate, score sheet, photo, or other document). Describe factually and concisely — one or two
@@ -53,13 +54,12 @@ export async function generateArtifactCaption(artifactId: string): Promise<void>
         systemPrompt: CAPTION_SYSTEM_PROMPT,
       });
     } else {
-      // PDF — extract text, then have Claude summarize it factually
-      const { default: pdfParse } = await import("pdf-parse");
+      // PDF — extract text, then have OpenAI summarize it factually
       const response = await fetch(artifact.fileUrl);
       const buffer = Buffer.from(await response.arrayBuffer());
-      const { text } = await pdfParse(buffer);
+      const text = await extractPdfText(buffer);
 
-      caption = await callClaudeForJson<string>({
+      caption = await callOpenAIForJson<string>({
         systemPrompt: CAPTION_SYSTEM_PROMPT,
         userPrompt: `Raw text extracted from the uploaded PDF:\n\n${text.slice(0, 4000)}\n\nDescribe what it shows, per the instructions. Return as a plain string (not JSON).`,
         maxTokens: 300,
@@ -69,7 +69,7 @@ export async function generateArtifactCaption(artifactId: string): Promise<void>
     await prisma.supportFormEntryArtifact.update({
       where: { id: artifactId },
       data: {
-        aiCaption: caption.slice(0, 500),
+        aiCaption: sanitizeTextForStorage(caption).slice(0, 500),
         aiCaptionStatus: "COMPLETE",
         aiCaptionError: null,
       },
@@ -80,7 +80,7 @@ export async function generateArtifactCaption(artifactId: string): Promise<void>
       where: { id: artifactId },
       data: {
         aiCaptionStatus: "FAILED",
-        aiCaptionError: err instanceof Error ? err.message : String(err),
+        aiCaptionError: sanitizeTextForStorage(err instanceof Error ? err.message : String(err)),
       },
     });
   }

@@ -13,6 +13,8 @@ EES 2.0 mirrors the real Army **rating chain**. Access and available actions are
 | **Soldier (Rated)** | The NCO or officer being evaluated | Logs support-form entries + proof; initiates their own evaluation; acknowledges/signs the finished report |
 | **Rater** | The rated soldier's direct supervisor | Writes Part IV performance bullets; generates/reviews AI drafts; routes to senior rater |
 | **Senior Rater** | The rater's supervisor | Provides the overall potential assessment; manages the "most qualified" profile; writes succession planning |
+| **Supplementary Reviewer** | A specifically assigned official when policy requires an additional review | Views and signs the assigned evaluation; does not author bullets or confirm support-form entries. Evaluation-comment authorization remains a migration item. |
+| **Access assistant** | A separately authenticated helper with a time-limited, resource-scoped access grant | Organizes permitted evidence or administrative work under their own identity; never signs, acknowledges, makes rating decisions, or becomes a rating official |
 | **Commander / Admin** | Unit leadership and administrators | Manage users, units, and rating chains; view compliance and velocity analytics |
 
 A person can hold multiple roles (a rater is also somebody else's rated soldier). The system resolves the correct role per evaluation via the rating chain.
@@ -23,7 +25,7 @@ A person can hold multiple roles (a rater is also somebody else's rated soldier)
 
 ### Half 1 — The Support Form (continuous performance capture)
 
-The support form is a **living log** that exists for a rating period, anchored to a rating chain. It is where the year's evidence accumulates.
+The support form is a **living log** that exists for a rating period. New regulated records are anchored to a published, effective-dated rating assignment; legacy records remain chain-anchored while the data migration is completed. It is where the year's evidence accumulates.
 
 **What a soldier does:**
 1. Opens the Support Form and clicks **Log entry**.
@@ -62,7 +64,7 @@ When the rating period closes (or a triggering event occurs), the documented per
 
 **Every AI draft flows into a review panel** where the rater must **accept, edit, or reject** each one. Before deciding, the rater also sees any **unsupported-fact warnings** — specific claims in the draft (a number, a date, a school name, an award) that don't appear anywhere in the evidence it was generated from. A section can't be marked complete while suggestions await review. Accepted bullets are tagged with a source (`AI_UNMODIFIED`, `AI_MODIFIED`, or `HUMAN`) and keep a permanent, reviewable link back to exactly which entries and evidence produced them.
 
-**Routing and signatures** follow the real rating chain: rater → senior rater → (supplementary reviewer, if required) → rated soldier acknowledgment. Signing is parallel-aware and content-hash protected, so editing a signed field flags the signature as stale. The evaluation's status is **automatically derived** from real section-completion and signature progress, so everyone always sees an accurate picture of where the report stands — not a stale or manually-set label.
+**Routing and signatures** follow the stored evaluation snapshot: rater → senior rater → rated soldier acknowledgment → supplementary reviewer, when the published assignment requires one. Signing is content-hash protected, so editing a signed field flags the signature as stale. The evaluation's status is **automatically derived** from real section-completion and signature progress, so everyone always sees an accurate picture of where the report stands — not a stale or manually-set label.
 
 **Export.** The finished evaluation renders to the official DA-form PDF for submission.
 

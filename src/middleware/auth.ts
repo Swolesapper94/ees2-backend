@@ -2,7 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import { verifySupabaseToken } from "@/lib/supabase";
 import { prisma } from "@/lib/prisma";
 import { isProd } from "@/config/env";
-import type { User } from "@prisma/client";
+import { AdministrativeScopeType, type User } from "@prisma/client";
 
 /**
  * Development-only: in-memory users — no database required.
@@ -77,6 +77,71 @@ const DEV_USERS: Record<string, User> = {
     createdAt: new Date("2024-01-01"),
     updatedAt: new Date("2024-01-01"),
   } as unknown as User,
+  "dev:jordan.lee@army.mil:testpass": {
+    id: "dev-maj-lee",
+    supabaseId: "dev-maj-lee",
+    email: "jordan.lee@army.mil",
+    firstName: "Jordan",
+    lastName: "Lee",
+    rank: "MAJ",
+    mos: "11A",
+    roles: ["SOLDIER", "SENIOR_RATER"],
+    unitId: "dev-unit-505",
+    createdAt: new Date("2024-01-01"),
+    updatedAt: new Date("2024-01-01"),
+  } as unknown as User,
+  "dev:avery.quinn@army.mil:testpass": {
+    id: "dev-admin-quinn",
+    supabaseId: "dev-admin-quinn",
+    email: "avery.quinn@army.mil",
+    firstName: "Avery",
+    lastName: "Quinn",
+    rank: "CPT",
+    mos: "42B",
+    roles: ["SOLDIER", "ADMIN"],
+    unitId: "dev-unit-505",
+    createdAt: new Date("2024-01-01"),
+    updatedAt: new Date("2024-01-01"),
+  } as unknown as User,
+  "dev:morgan.reed@army.mil:testpass": {
+    id: "dev-reviewer-reed",
+    supabaseId: "dev-reviewer-reed",
+    email: "morgan.reed@army.mil",
+    firstName: "Morgan",
+    lastName: "Reed",
+    rank: "LTC",
+    mos: "11A",
+    roles: ["SOLDIER", "REVIEWER"],
+    unitId: "dev-unit-505",
+    createdAt: new Date("2024-01-01"),
+    updatedAt: new Date("2024-01-01"),
+  } as unknown as User,
+  "dev:alex.rivera@army.mil:testpass": {
+    id: "dev-assistant-rivera",
+    supabaseId: "dev-assistant-rivera",
+    email: "alex.rivera@army.mil",
+    firstName: "Alex",
+    lastName: "Rivera",
+    rank: "SGT",
+    mos: "42A",
+    roles: ["SOLDIER"],
+    unitId: "dev-unit-505",
+    createdAt: new Date("2024-01-01"),
+    updatedAt: new Date("2024-01-01"),
+  } as unknown as User,
+  "dev:taylor.morgan@army.mil:testpass": {
+    id: "dev-assistant-morgan",
+    supabaseId: "dev-assistant-morgan",
+    email: "taylor.morgan@army.mil",
+    firstName: "Taylor",
+    lastName: "Morgan",
+    rank: "SFC",
+    mos: "42A",
+    roles: ["SOLDIER"],
+    unitId: "dev-unit-505",
+    createdAt: new Date("2024-01-01"),
+    updatedAt: new Date("2024-01-01"),
+  } as unknown as User,
 };
 
 /**
@@ -107,6 +172,10 @@ export async function requireAuth(
       where: { email: devUser.email },
     });
     const user = persistedUser ?? devUser;
+    if (user.applicationAccessStatus && user.applicationAccessStatus !== "ACTIVE") {
+      res.status(403).json({ error: "EES access is not active" });
+      return;
+    }
     req.authUserId = user.supabaseId;
     req.user = user;
     next();
@@ -124,6 +193,10 @@ export async function requireAuth(
   const user = await prisma.user.findUnique({
     where: { supabaseId: authUser.id },
   });
+  if (user?.applicationAccessStatus && user.applicationAccessStatus !== "ACTIVE") {
+    res.status(403).json({ error: "EES access is not active" });
+    return;
+  }
   if (user) req.user = user;
 
   next();
@@ -146,4 +219,41 @@ export function requireRole(...roles: string[]) {
     }
     next();
   };
+}
+
+/** Application administration is separate from rating authority. */
+export function requireApplicationAdministrator(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  if (!req.user) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+  if (!req.user.roles.includes("ADMIN")) {
+    res.status(403).json({ error: "Identity and Access Administration requires application administrator access" });
+    return;
+  }
+  next();
+}
+
+/**
+ * Returns the units an administrator is scoped to. Administrators without
+ * explicit scope rows retain the legacy full-administrator scope; once scope
+ * rows exist, callers must constrain record queries to the listed units.
+ */
+export async function administrativeScopeUnitIds(userId: string): Promise<string[] | null> {
+  const now = new Date();
+  const scopes = await prisma.administrativeScope.findMany({
+    where: {
+      administratorId: userId,
+      scopeType: { in: [AdministrativeScopeType.IDENTITY_ACCESS, AdministrativeScopeType.SERVICING_ADMINISTRATION] },
+      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+    },
+    select: { unitId: true },
+  });
+  if (scopes.length === 0) return null;
+  if (scopes.some((scope) => scope.unitId === null)) return null;
+  return scopes.flatMap((scope) => scope.unitId ? [scope.unitId] : []);
 }

@@ -1,3 +1,4 @@
+import { authorizeDelegatedAction } from "@/lib/access-assistance/authorization";
 import { Router } from "express";
 import multer from "multer";
 import { z } from "zod";
@@ -9,6 +10,8 @@ import { resolveFormType } from "@/lib/utils/role-resolver";
 import { checkCompleteness, allowedFieldsFor } from "@/lib/support-form/completeness";
 import { generateArtifactCaption } from "@/lib/ai/artifact-captioning";
 import { requireRatingChainRole, requireSupportFormEntryOwner, requireArtifactOwner } from "@/lib/utils/chain-auth";
+import { authorizeSupportFormEntryCreate, authorizeSupportFormView, canConfirmSupportFormEntry, canEditSupportFormField, canViewSupportForm } from "@/lib/authorization-policies";
+import { notify } from "@/lib/notifications/create";
 
 export const supportFormsRouter = Router();
 
@@ -27,8 +30,9 @@ const upload = multer({
 });
 
 const createFormSchema = z.object({
-  soldierId: z.string().min(1),
+  soldierId: z.string().min(1).optional(),
   ratingChainId: z.string().min(1),
+  ratingSchemeAssignmentId: z.string().min(1).optional(),
   ratingPeriodStart: z.coerce.date(),
   ratingPeriodEnd: z.coerce.date().optional(),
   dutyTitle: z.string().min(1),
@@ -48,6 +52,43 @@ const patchFormSchema = z.object({
   ssdNcoesMet: z.boolean().optional(),
   soldierGoals: z.string().optional(),
 });
+
+const patchEntrySchema = z.object({
+  rawText: z.string().min(1).max(5000).optional(),
+  tags: z.array(z.string().min(1).max(80)).max(20).optional(),
+  isHighlight: z.boolean().optional(),
+});
+
+const organizeArtifactSchema = z.object({
+  type: z.enum(["CERTIFICATE", "SCORE_SHEET", "PHOTO", "DOCUMENT", "OTHER"]),
+});
+
+const reviewRequestSchema = z.object({
+  recipient: z.enum(["SOLDIER", "RATER"]),
+  note: z.string().trim().max(500).optional(),
+});
+
+const reminderSchema = z.object({
+  recipient: z.enum(["SOLDIER", "RATER", "SENIOR_RATER"]),
+  note: z.string().trim().min(1).max(500),
+});
+
+async function authorizeSupportFormWorkflowAction(
+  actor: NonNullable<Express.Request["user"]>,
+  form: { id: string; soldierId: string; ratingSchemeAssignmentId: string | null; ratingChain: { raterId: string; seniorRaterId: string } | null },
+  capability: "REQUEST_SOLDIER_REVIEW" | "REQUEST_RATER_REVIEW" | "SEND_WORKFLOW_REMINDER",
+) {
+  const directAccess = actor.roles.includes("ADMIN") || [form.soldierId, form.ratingChain?.raterId, form.ratingChain?.seniorRaterId].includes(actor.id);
+  if (directAccess) return { allowed: true as const, source: "DIRECT" as const };
+  const delegated = await authorizeDelegatedAction({
+    actorUserId: actor.id,
+    subjectUserId: form.soldierId,
+    capability,
+    supportFormId: form.id,
+    ratingAssignmentId: form.ratingSchemeAssignmentId ?? undefined,
+  });
+  return { ...delegated, source: "DELEGATION" as const };
+}
 
 const createEntrySchema = z.object({
   section: z.string().min(1),
@@ -91,12 +132,30 @@ supportFormsRouter.get(
   "/",
   requireAuth,
   asyncHandler(async (req, res) => {
-    const soldierId =
-      typeof req.query.soldierId === "string" ? req.query.soldierId : undefined;
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    const requestedSoldierId = typeof req.query.soldierId === "string"
+      ? req.query.soldierId
+      : req.user.id;
+    const relationshipScope = req.user.roles.includes("ADMIN")
+      ? {}
+      : {
+          OR: [
+            { soldierId: req.user.id },
+            {
+              ratingChain: {
+                OR: [
+                  { raterId: req.user.id },
+                  { seniorRaterId: req.user.id },
+                  { reviewerId: req.user.id },
+                ],
+              },
+            },
+          ],
+        };
     const forms = await prisma.supportForm.findMany({
-      where: soldierId ? { soldierId } : undefined,
+      where: { soldierId: requestedSoldierId, disposition: "ACTIVE", ...relationshipScope },
       include: {
-        entries: { include: { artifacts: true }, orderBy: { entryDate: "desc" } },
+        entries: { include: { artifacts: true, createdByUser: { select: { firstName: true, lastName: true, rank: true } }, assistedUser: { select: { firstName: true, lastName: true, rank: true } } }, orderBy: { entryDate: "desc" } },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -120,23 +179,47 @@ supportFormsRouter.post(
   asyncHandler(async (req, res) => {
     const body = createFormSchema.parse(req.body);
 
-    const [soldier, chain] = await Promise.all([
-      prisma.user.findUnique({ where: { id: body.soldierId } }),
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    const [chain, assignment] = await Promise.all([
       prisma.ratingChain.findUnique({
         where: { id: body.ratingChainId },
         include: { evaluations: { select: { id: true, supportFormId: true } } },
       }),
+      body.ratingSchemeAssignmentId
+        ? prisma.ratingSchemeAssignment.findUnique({
+            where: { id: body.ratingSchemeAssignmentId },
+            include: { ratedSoldier: true },
+          })
+        : null,
     ]);
-    if (!soldier) throw new HttpError(404, "Soldier not found");
     if (!chain) throw new HttpError(404, "Rating chain not found");
-    if (chain.ratedSoldierId !== body.soldierId) {
+    if (body.ratingSchemeAssignmentId && !assignment) {
+      throw new HttpError(404, "Rating scheme assignment not found", "RATING_ASSIGNMENT_NOT_FOUND");
+    }
+    const now = new Date();
+    if (assignment && (assignment.status !== "PUBLISHED" || assignment.effectiveFrom > now || (assignment.effectiveTo && assignment.effectiveTo < now))) {
+      throw new HttpError(409, "The rating assignment is not currently effective.", "RATING_ASSIGNMENT_NOT_EFFECTIVE");
+    }
+    if (assignment && (assignment.ratedSoldierId !== chain.ratedSoldierId || assignment.raterId !== chain.raterId || assignment.seniorRaterId !== chain.seniorRaterId)) {
+      throw new HttpError(422, "The legacy rating chain does not match the published assignment.", "RATING_ASSIGNMENT_CHAIN_MISMATCH");
+    }
+    const soldierId = assignment?.ratedSoldierId ?? body.soldierId;
+    if (!soldierId) {
+      throw new HttpError(400, "A soldier is required when no rating assignment is supplied.");
+    }
+    if (chain.ratedSoldierId !== soldierId) {
       throw new HttpError(400, "Rating chain does not belong to this soldier");
+    }
+    if (!req.user.roles.includes("ADMIN") && req.user.id !== soldierId && req.user.id !== chain.raterId) {
+      throw new HttpError(403, "Only the rated Soldier or assigned rater may initiate this support form.");
     }
 
     const unconsumedForm = await prisma.supportForm.findFirst({
       where: {
-        ratingChainId: body.ratingChainId,
+        ...(assignment ? { ratingSchemeAssignmentId: assignment.id } : { ratingChainId: body.ratingChainId }),
         isActive: true,
+        disposition: "ACTIVE",
+        status: { notIn: ["CONSUMED", "ARCHIVED", "QUARANTINED"] },
         evaluations: { none: {} }, // not yet linked to any Evaluation
       },
     });
@@ -148,11 +231,15 @@ supportFormsRouter.post(
       );
     }
 
-    const { evalType: evalCategory } = resolveFormType(soldier.rank);
+    const { evalType: derivedCategory } = resolveFormType(assignment?.ratedSoldier.rank ?? (await prisma.user.findUniqueOrThrow({ where: { id: soldierId }, select: { rank: true } })).rank);
+    const evalCategory = assignment?.formCategory ?? derivedCategory;
+    if (assignment && evalCategory !== derivedCategory) {
+      throw new HttpError(422, "The assignment category does not match the rated Soldier's rank.", "RATING_ASSIGNMENT_CATEGORY_MISMATCH");
+    }
     const allowed = allowedFieldsFor(evalCategory);
     const rejected = Object.keys(body).filter(
       (k) =>
-        !["soldierId", "ratingChainId", "ratingPeriodStart", "ratingPeriodEnd"].includes(k) &&
+        !["soldierId", "ratingChainId", "ratingSchemeAssignmentId", "ratingPeriodStart", "ratingPeriodEnd"].includes(k) &&
         !allowed.includes(k),
     );
     if (rejected.length > 0) {
@@ -163,7 +250,13 @@ supportFormsRouter.post(
     }
 
     const form = await prisma.supportForm.create({
-      data: { ...body, evalCategory },
+      data: {
+        ...body,
+        soldierId,
+        ratingSchemeAssignmentId: assignment?.id,
+        evalCategory,
+        initiatedByUserId: req.user.id,
+      },
     });
     res.status(201).json(form);
   }),
@@ -177,13 +270,18 @@ supportFormsRouter.get(
     const form = await prisma.supportForm.findUnique({
       where: { id: req.params.id },
       include: {
-        entries: { include: { artifacts: true }, orderBy: { entryDate: "desc" } },
+        entries: { include: { artifacts: true, createdByUser: { select: { firstName: true, lastName: true, rank: true } }, assistedUser: { select: { firstName: true, lastName: true, rank: true } } }, orderBy: { entryDate: "desc" } },
         soldier: true,
+        ratingChain: true,
       },
     });
     if (!form) {
       res.status(404).json({ error: "Support form not found" });
       return;
+    }
+    const access = req.user ? await authorizeSupportFormView(req.user, form, form.ratingChain) : { allowed: false };
+    if (!access.allowed) {
+      throw new HttpError(404, "Support form not found");
     }
     res.json(form);
   }),
@@ -197,10 +295,15 @@ supportFormsRouter.patch(
   requireAuth,
   asyncHandler(async (req, res) => {
     const body = patchFormSchema.parse(req.body);
-    const form = await prisma.supportForm.findUnique({ where: { id: req.params.id } });
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    const form = await prisma.supportForm.findUnique({ where: { id: req.params.id }, include: { ratingChain: true } });
     if (!form) throw new HttpError(404, "Support form not found");
     if (!form.evalCategory) {
       throw new HttpError(500, "Support form is missing evalCategory — data integrity issue");
+    }
+
+    if (!Object.keys(body).every((field) => canEditSupportFormField(req.user!, form, field, form.ratingChain))) {
+      throw new HttpError(403, "You are not authorized to edit these support form fields.");
     }
 
     const allowed = allowedFieldsFor(form.evalCategory);
@@ -225,6 +328,9 @@ supportFormsRouter.get(
   "/:id/completeness",
   requireAuth,
   asyncHandler(async (req, res) => {
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    const form = await prisma.supportForm.findUnique({ where: { id: req.params.id }, include: { ratingChain: true } });
+    if (!form || !(await authorizeSupportFormView(req.user, form, form.ratingChain)).allowed) throw new HttpError(404, "Support form not found");
     const result = await checkCompleteness(req.params.id!);
     res.json(result);
   }),
@@ -237,6 +343,11 @@ supportFormsRouter.post(
   "/:id/finalize",
   requireAuth,
   asyncHandler(async (req, res) => {
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    const form = await prisma.supportForm.findUnique({ where: { id: req.params.id }, include: { ratingChain: true } });
+    if (!form || !canEditSupportFormField(req.user, form, "completedAt", form.ratingChain)) {
+      throw new HttpError(404, "Support form not found");
+    }
     const result = await checkCompleteness(req.params.id!);
     if (!result.hardComplete) {
       res.status(409).json({ error: "Support form is not complete", missing: result.missing });
@@ -244,7 +355,7 @@ supportFormsRouter.post(
     }
     const updated = await prisma.supportForm.update({
       where: { id: req.params.id },
-      data: { completedAt: new Date() },
+      data: { completedAt: new Date(), finalizedAt: new Date(), status: "FINALIZED" },
     });
     res.json({ ...updated, softComplete: result.softComplete });
   }),
@@ -277,7 +388,23 @@ supportFormsRouter.post(
   "/:id/entries",
   requireAuth,
   asyncHandler(async (req, res) => {
+    if (!req.user) throw new HttpError(401, "Not authenticated");
     const body = createEntrySchema.parse(req.body);
+    const form = await prisma.supportForm.findUnique({ where: { id: req.params.id }, include: { ratingChain: true } });
+    const entryAccess = form
+      ? await authorizeSupportFormEntryCreate(req.user, form, body.entryType, form.ratingChain)
+      : { allowed: false, source: "NONE" as const };
+    if (!form || !entryAccess.allowed) {
+      throw new HttpError(404, "Support form not found");
+    }
+    const delegationGrant = entryAccess.source === "DELEGATION" ? entryAccess.grant : undefined;
+    const authorRoleAtCreation = req.user.id === form.soldierId
+      ? "RATED_SOLDIER"
+      : req.user.id === form.ratingChain?.raterId
+        ? "RATER"
+        : req.user.id === form.ratingChain?.seniorRaterId
+          ? "SENIOR_RATER"
+          : "SERVICING_ADMIN";
     const entry = await prisma.supportFormEntry.create({
       data: {
         supportFormId: req.params.id!,
@@ -286,6 +413,11 @@ supportFormsRouter.post(
         rawText: body.rawText,
         tags: body.tags,
         isHighlight: body.isHighlight,
+        createdByUserId: req.user.id,
+        authorRoleAtCreation,
+        ...(delegationGrant
+          ? { onBehalfOfUserId: form.soldierId, delegationGrantId: delegationGrant.id }
+          : {}),
         ...(body.entryDate ? { entryDate: body.entryDate } : {}),
       },
     });
@@ -297,12 +429,67 @@ supportFormsRouter.post(
           action: "ENTRY_CREATED",
           entityType: "SupportFormEntry",
           entityId: entry.id,
-          metadata: { section: body.section, entryType: body.entryType },
+          metadata: { section: body.section, entryType: body.entryType, authorizationSource: entryAccess.source },
+          ...(delegationGrant
+            ? { subjectUserId: form.soldierId, delegationGrantId: delegationGrant.id, delegationCapability: "ADD_DRAFT_SUPPORT_ENTRY" }
+            : {}),
         },
       });
     }
 
     res.status(201).json(entry);
+  }),
+);
+
+// A helper may revise only an unlocked draft they personally created. This
+// cannot alter confirmation, attribution, or any rater-owned evidence status.
+supportFormsRouter.patch(
+  "/entries/:entryId",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    const body = patchEntrySchema.parse(req.body);
+    if (Object.keys(body).length === 0) throw new HttpError(400, "Provide at least one draft field to update.");
+    const entry = await prisma.supportFormEntry.findUnique({
+      where: { id: req.params.entryId },
+      include: { supportForm: true },
+    });
+    if (!entry) throw new HttpError(404, "Support form entry not found.");
+    if (entry.createdByUserId !== req.user.id) throw new HttpError(403, "You may only edit your own draft entries.");
+    if (entry.lockedAt || entry.confirmationStatus !== "UNREVIEWED" || entry.usedInEvalId) {
+      throw new HttpError(409, "Confirmed or used entries cannot be edited.");
+    }
+
+    const delegatedEdit = entry.onBehalfOfUserId
+      ? await authorizeDelegatedAction({
+          actorUserId: req.user.id,
+          subjectUserId: entry.supportForm.soldierId,
+          capability: "EDIT_OWN_DRAFT_SUPPORT_ENTRY",
+          supportFormId: entry.supportFormId,
+          ratingAssignmentId: entry.supportForm.ratingSchemeAssignmentId ?? undefined,
+        })
+      : undefined;
+    if (entry.onBehalfOfUserId && !delegatedEdit?.allowed) {
+      throw new HttpError(403, "Your scoped permission to edit this draft is no longer active.");
+    }
+
+    const updated = await prisma.supportFormEntry.update({
+      where: { id: entry.id },
+      data: { ...body, lastEditedByUserId: req.user.id, sourceVersion: { increment: 1 } },
+    });
+    await prisma.auditLog.create({
+      data: {
+        actorId: req.user.id,
+        action: "SUPPORT_FORM_ENTRY_DRAFT_EDITED",
+        entityType: "SupportFormEntry",
+        entityId: entry.id,
+        metadata: { fields: Object.keys(body), authorizationSource: delegatedEdit?.grant ? "DELEGATION" : "DIRECT" },
+        ...(delegatedEdit?.grant
+          ? { subjectUserId: entry.supportForm.soldierId, delegationGrantId: delegatedEdit.grant.id, delegationCapability: "EDIT_OWN_DRAFT_SUPPORT_ENTRY" }
+          : {}),
+      },
+    });
+    res.json(updated);
   }),
 );
 
@@ -324,9 +511,26 @@ supportFormsRouter.post(
     // support form may attach evidence to their own entries. Also verify
     // the entry actually belongs to the :formId in the URL, not just that
     // it exists (previously fetched by entryId alone, ignoring formId).
-    const entry = await requireSupportFormEntryOwner(entryId!, req.user);
+    const entry = await prisma.supportFormEntry.findUnique({
+      where: { id: entryId! },
+      include: { supportForm: true },
+    });
+    if (!entry) throw new HttpError(404, "Support form entry not found.");
     if (entry.supportFormId !== formId) {
       throw new HttpError(400, "Entry does not belong to the specified support form.");
+    }
+    const directOwner = req.user.roles.includes("ADMIN") || entry.supportForm.soldierId === req.user.id;
+    const delegatedUpload = directOwner
+      ? undefined
+      : await authorizeDelegatedAction({
+          actorUserId: req.user.id,
+          subjectUserId: entry.supportForm.soldierId,
+          capability: "UPLOAD_ARTIFACT",
+          supportFormId: entry.supportFormId,
+          ratingAssignmentId: entry.supportForm.ratingSchemeAssignmentId ?? undefined,
+        });
+    if (!directOwner && !delegatedUpload?.allowed) {
+      throw new HttpError(403, "You can only upload artifacts through a scoped access grant.");
     }
 
     const body = createArtifactSchema.parse({
@@ -361,6 +565,10 @@ supportFormsRouter.post(
         flaggedByServiceMember: body.flaggedByServiceMember,
         flagNote: body.flagNote ?? null,
         aiCaptionStatus: "PENDING",
+        createdByUserId: req.user.id,
+        ...(delegatedUpload?.grant
+          ? { onBehalfOfUserId: entry.supportForm.soldierId, delegationGrantId: delegatedUpload.grant.id }
+          : {}),
       },
     });
 
@@ -375,7 +583,10 @@ supportFormsRouter.post(
         action: "ARTIFACT_UPLOADED",
         entityType: "SupportFormEntryArtifact",
         entityId: artifact.id,
-        metadata: { entryId, type: body.type },
+        metadata: { entryId, type: body.type, authorizationSource: delegatedUpload?.grant ? "DELEGATION" : "DIRECT" },
+        ...(delegatedUpload?.grant
+          ? { subjectUserId: entry.supportForm.soldierId, delegationGrantId: delegatedUpload.grant.id, delegationCapability: "UPLOAD_ARTIFACT" }
+          : {}),
       },
     });
 
@@ -420,6 +631,51 @@ supportFormsRouter.patch(
   }),
 );
 
+// Organization is limited to artifact classification. Flagging remains the
+// rated Soldier's own attestation and is intentionally handled separately.
+supportFormsRouter.patch(
+  "/artifacts/:artifactId",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    const body = organizeArtifactSchema.parse(req.body);
+    const artifact = await prisma.supportFormEntryArtifact.findUnique({
+      where: { id: req.params.artifactId },
+      include: { entry: { include: { supportForm: true } } },
+    });
+    if (!artifact) throw new HttpError(404, "Artifact not found.");
+    const directAccess = req.user.roles.includes("ADMIN") || artifact.entry.supportForm.soldierId === req.user.id;
+    const delegatedOrganization = directAccess
+      ? undefined
+      : await authorizeDelegatedAction({
+          actorUserId: req.user.id,
+          subjectUserId: artifact.entry.supportForm.soldierId,
+          capability: "ORGANIZE_ARTIFACT",
+          supportFormId: artifact.entry.supportFormId,
+          ratingAssignmentId: artifact.entry.supportForm.ratingSchemeAssignmentId ?? undefined,
+        });
+    if (!directAccess && !delegatedOrganization?.allowed) throw new HttpError(403, "You are not authorized to organize this artifact.");
+
+    const updated = await prisma.supportFormEntryArtifact.update({
+      where: { id: artifact.id },
+      data: { type: body.type, lastEditedByUserId: req.user.id },
+    });
+    await prisma.auditLog.create({
+      data: {
+        actorId: req.user.id,
+        action: "ARTIFACT_ORGANIZED",
+        entityType: "SupportFormEntryArtifact",
+        entityId: artifact.id,
+        metadata: { type: body.type, authorizationSource: delegatedOrganization?.grant ? "DELEGATION" : "DIRECT" },
+        ...(delegatedOrganization?.grant
+          ? { subjectUserId: artifact.entry.supportForm.soldierId, delegationGrantId: delegatedOrganization.grant.id, delegationCapability: "ORGANIZE_ARTIFACT" }
+          : {}),
+      },
+    });
+    res.json(updated);
+  }),
+);
+
 // PATCH /api/support-forms/entries/:entryId/confirm
 // Rater/SR/reviewer explicitly reviews a soldier-logged entry: confirms it
 // as usable context, requests clarification, or marks it not used. Distinct
@@ -454,11 +710,10 @@ supportFormsRouter.patch(
 
     // Only the rating chain's rater/senior rater/reviewer (or an ADMIN) may
     // confirm an entry — never the rated soldier themselves.
-    await requireRatingChainRole(entry.supportForm.ratingChainId, req.user, [
-      "RATER",
-      "SENIOR_RATER",
-      "REVIEWER",
-    ]);
+    const chain = await prisma.ratingChain.findUnique({ where: { id: entry.supportForm.ratingChainId } });
+    if (!canConfirmSupportFormEntry(req.user, entry, chain)) {
+      throw new HttpError(403, "You are not authorized to confirm this support form entry.");
+    }
 
     const updated = await prisma.supportFormEntry.update({
       where: { id: req.params.entryId },
@@ -466,6 +721,8 @@ supportFormsRouter.patch(
         confirmationStatus: body.status as never,
         confirmedById: req.user.id,
         confirmedAt: new Date(),
+        lockedAt: body.status === "CONFIRMED" ? new Date() : null,
+        lockReason: body.status === "CONFIRMED" ? "RATER_CONFIRMED" : null,
         clarificationNote:
           body.status === "NEEDS_CLARIFICATION" ? (body.clarificationNote ?? null) : null,
       },
@@ -482,6 +739,85 @@ supportFormsRouter.patch(
     });
 
     res.json(updated);
+  }),
+);
+
+supportFormsRouter.post(
+  "/:id/review-requests",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    const body = reviewRequestSchema.parse(req.body);
+    const form = await prisma.supportForm.findUnique({ where: { id: req.params.id }, include: { ratingChain: true } });
+    if (!form || !form.ratingChain) throw new HttpError(404, "Support form not found.");
+    const capability = body.recipient === "SOLDIER" ? "REQUEST_SOLDIER_REVIEW" : "REQUEST_RATER_REVIEW";
+    const access = await authorizeSupportFormWorkflowAction(req.user, form, capability);
+    if (!access.allowed) throw new HttpError(403, "You are not authorized to request this review.");
+    const recipientId = body.recipient === "SOLDIER" ? form.soldierId : form.ratingChain.raterId;
+    if (recipientId === req.user.id) throw new HttpError(422, "You cannot request a review from yourself.");
+
+    await notify({
+      userId: recipientId,
+      category: "COLLABORATION",
+      title: "Support Form Review Requested",
+      message: body.note || "A scoped workflow participant requested your review of the support form.",
+      actionUrl: `/support-form?formId=${form.id}`,
+      actionLabel: "Open support form",
+    });
+    await prisma.auditLog.create({
+      data: {
+        actorId: req.user.id,
+        action: "SUPPORT_FORM_REVIEW_REQUESTED",
+        entityType: "SupportForm",
+        entityId: form.id,
+        metadata: { recipient: body.recipient, authorizationSource: access.source },
+        ...(access.source === "DELEGATION" && access.grant
+          ? { subjectUserId: form.soldierId, delegationGrantId: access.grant.id, delegationCapability: capability }
+          : {}),
+      },
+    });
+    res.status(202).json({ recipient: body.recipient });
+  }),
+);
+
+supportFormsRouter.post(
+  "/:id/reminders",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    const body = reminderSchema.parse(req.body);
+    const form = await prisma.supportForm.findUnique({ where: { id: req.params.id }, include: { ratingChain: true } });
+    if (!form || !form.ratingChain) throw new HttpError(404, "Support form not found.");
+    const access = await authorizeSupportFormWorkflowAction(req.user, form, "SEND_WORKFLOW_REMINDER");
+    if (!access.allowed) throw new HttpError(403, "You are not authorized to send workflow reminders.");
+    const recipientId = body.recipient === "SOLDIER"
+      ? form.soldierId
+      : body.recipient === "RATER"
+        ? form.ratingChain.raterId
+        : form.ratingChain.seniorRaterId;
+    if (recipientId === req.user.id) throw new HttpError(422, "You cannot send a workflow reminder to yourself.");
+
+    await notify({
+      userId: recipientId,
+      category: "DELEGATE",
+      title: "Support Form Workflow Reminder",
+      message: body.note,
+      actionUrl: `/support-form?formId=${form.id}`,
+      actionLabel: "Open support form",
+    });
+    await prisma.auditLog.create({
+      data: {
+        actorId: req.user.id,
+        action: "SUPPORT_FORM_WORKFLOW_REMINDER_SENT",
+        entityType: "SupportForm",
+        entityId: form.id,
+        metadata: { recipient: body.recipient, authorizationSource: access.source },
+        ...(access.source === "DELEGATION" && access.grant
+          ? { subjectUserId: form.soldierId, delegationGrantId: access.grant.id, delegationCapability: "SEND_WORKFLOW_REMINDER" }
+          : {}),
+      },
+    });
+    res.status(202).json({ recipient: body.recipient });
   }),
 );
 

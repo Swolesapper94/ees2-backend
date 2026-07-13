@@ -1,7 +1,7 @@
 /**
  * Support Form AI Pipeline — EES 2.0 Phase 1
  *
- * Stage 1: Vision extraction (Claude sees the scanned/uploaded support form)
+ * Stage 1: Vision extraction (OpenAI vision sees the scanned/uploaded support form)
  * Stage 2: Parse raw extract into typed section entries
  * Stage 3: Generate ranked bullet candidates per section (injecting regulation context)
  *
@@ -11,9 +11,10 @@
 
 import fs from "fs";
 import { prisma } from "@/lib/prisma";
-import { extractTextFromImage, callClaudeForJson, generateBullets, sanitizeBulletText } from "./claude";
+import { extractTextFromImage, callOpenAIForJson, generateBullets, sanitizeBulletText } from "./openai";
+import { extractPdfText, sanitizeTextForStorage } from "@/lib/pdf/extract-text";
 import { searchRegulations } from "@/lib/regulations/search";
-import { SYSTEM_PROMPT } from "./prompts";
+import { systemPromptForFormType } from "./prompts";
 
 // ─── Section definitions for regulation-aware bullet generation ───────────────
 
@@ -34,13 +35,75 @@ const SECTION_DEFINITIONS: Record<string, string> = {
 
 // ─── Stage 1: Vision Extraction ───────────────────────────────────────────────
 
-const STAGE1_SYSTEM_PROMPT = `You are reading a scanned U.S. Army DA 2166-9-1A Support Form.
+const STAGE1_SYSTEM_PROMPT = `You are reading a scanned U.S. Army evaluation support form.
 Extract all text you can read, including handwritten entries.
 For each accomplishment or entry found, output it on its own line prefixed with the section label
 if visible (e.g. "CHARACTER:", "ACHIEVES:"). If a date or timeframe is visible near the entry,
 include it in brackets. Do not restructure, summarize, or interpret — only extract what you can read.
 If a section is blank or illegible, write "[SECTION ILLEGIBLE]".
 Output plain text only.`;
+
+const DUTY_PREFILL_SYSTEM_PROMPT = `Extract only the duty description fields from a U.S. Army support form.
+Return JSON only with these optional fields:
+{
+  "principalDutyTitle": "official duty title",
+  "dutyMosc": "duty MOSC if present",
+  "dailyDutiesScope": "significant duties and responsibilities",
+  "areasOfSpecialEmphasis": "areas of emphasis if present",
+  "appointedDuties": "appointed duties if present"
+}
+Do not invent information. Omit fields that are blank or illegible.`;
+
+interface ExtractedDutyDescription {
+  principalDutyTitle?: string;
+  dutyMosc?: string;
+  dailyDutiesScope?: string;
+  areasOfSpecialEmphasis?: string;
+  appointedDuties?: string;
+}
+
+function dutyValue(value: unknown, maxLength = 4000): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const cleaned = sanitizeTextForStorage(value).slice(0, maxLength);
+  return cleaned || undefined;
+}
+
+async function prefillEvaluationDutyDescription(
+  evaluationId: string,
+  rawExtract: string,
+): Promise<void> {
+  const evaluation = await prisma.evaluation.findUnique({
+    where: { id: evaluationId },
+    select: {
+      principalDutyTitle: true,
+      dutyMosc: true,
+      dailyDutiesScope: true,
+      areasOfSpecialEmphasis: true,
+      appointedDuties: true,
+    },
+  });
+  if (!evaluation || Object.values(evaluation).every((value) => value !== null)) return;
+
+  try {
+    const extracted = await callOpenAIForJson<ExtractedDutyDescription>({
+      systemPrompt: DUTY_PREFILL_SYSTEM_PROMPT,
+      userPrompt: rawExtract.slice(0, 8000),
+      maxTokens: 1000,
+    });
+    const data = {
+      ...(evaluation.principalDutyTitle ? {} : { principalDutyTitle: dutyValue(extracted.principalDutyTitle, 200) }),
+      ...(evaluation.dutyMosc ? {} : { dutyMosc: dutyValue(extracted.dutyMosc, 100) }),
+      ...(evaluation.dailyDutiesScope ? {} : { dailyDutiesScope: dutyValue(extracted.dailyDutiesScope) }),
+      ...(evaluation.areasOfSpecialEmphasis ? {} : { areasOfSpecialEmphasis: dutyValue(extracted.areasOfSpecialEmphasis) }),
+      ...(evaluation.appointedDuties ? {} : { appointedDuties: dutyValue(extracted.appointedDuties) }),
+    };
+    if (Object.values(data).some((value) => value !== undefined)) {
+      await prisma.evaluation.update({ where: { id: evaluationId }, data });
+    }
+  } catch (error) {
+    console.warn("[pipeline] Duty-description prefill unavailable", error);
+  }
+}
 
 async function runStage1(
   uploadId: string,
@@ -68,7 +131,7 @@ async function runStage1(
   }
 
   if (fileType === "image") {
-    // Convert image buffer to base64 for Claude vision
+    // Convert image buffer to base64 for OpenAI vision
     const base64 = buffer.toString("base64");
 
     // Detect media type from URL
@@ -84,31 +147,16 @@ async function runStage1(
       systemPrompt: STAGE1_SYSTEM_PROMPT,
     });
   } else {
-    // PDF — use pdf-parse to extract text, then send to Claude for normalization
-    let text: string = "";
-    try {
-      const { default: pdfParse } = await import("pdf-parse");
-      const result = await pdfParse(buffer);
-      text = result.text || "";
-    } catch (pdfErr) {
-      console.warn("[pipeline] pdf-parse failed, trying alternative parsing...", pdfErr);
-      // Fallback: treat PDF as binary and extract what we can
-      // Or use buffer-to-string for basic text extraction
-      text = buffer.toString("latin1").slice(0, 6000);
-    }
+    // Never fall back to raw PDF bytes: they may contain NUL characters and
+    // cannot be stored in PostgreSQL text columns or safely sent to the model.
+    const text = await extractPdfText(buffer);
 
-    // For typed PDFs, send the extracted text to Claude to normalize/label it
-    rawExtract = await callClaudeForJson<string>({
-      systemPrompt: STAGE1_SYSTEM_PROMPT,
-      userPrompt: `The following is raw text extracted from a DA 2166-9-1A support form PDF:\n\n${text.slice(0, 6000)}\n\nNormalize it into the labeled format as instructed. Return as a plain string (not JSON).`,
-      maxTokens: 4096,
-    }).catch(async () => {
-      // If JSON parse fails, Claude returned plain text — fall back to Claude text call
-      const { callClaudeForJson: _, ...rest } = await import("./claude");
-      void rest;
-      return text; // use raw extracted text as fallback
-    });
+    // pdf-parse already returns safe text. Stage 2 classifies it, avoiding a
+    // second model call that can leave the pipeline stuck before parsing.
+    rawExtract = text;
   }
+
+  rawExtract = sanitizeTextForStorage(rawExtract);
 
   await prisma.supportFormUpload.update({
     where: { id: uploadId },
@@ -120,7 +168,7 @@ async function runStage1(
 
 // ─── Stage 2: Parse into Typed Entries ───────────────────────────────────────
 
-const STAGE2_SYSTEM_PROMPT = `You are classifying U.S. Army NCOER support form entries for the DA 2166-9-1A form.
+const STAGE2_SYSTEM_PROMPT = `You are classifying U.S. Army evaluation support form entries.
 Given the following raw extracted text, output a JSON array only — no preamble, no markdown fences.
 Each object must have:
 { "section": one of [CHARACTER, PRESENCE, INTELLECT, LEADS, DEVELOPS, ACHIEVES],
@@ -138,7 +186,7 @@ Creative thinking or technical expertise → INTELLECT.
 If ambiguous, default to ACHIEVES.
 Output JSON array only.`;
 
-interface ParsedEntry {
+export interface ParsedEntry {
   section: string;
   what: string;
   impact?: string;
@@ -160,7 +208,7 @@ async function runStage2(
     "CHARACTER", "PRESENCE", "INTELLECT", "LEADS", "DEVELOPS", "ACHIEVES",
   ]);
 
-  const parsed = await callClaudeForJson<ParsedEntry[]>({
+  const parsed = await callOpenAIForJson<ParsedEntry[]>({
     systemPrompt: STAGE2_SYSTEM_PROMPT,
     userPrompt: rawExtract,
     maxTokens: 3000,
@@ -198,10 +246,37 @@ interface BulletCandidate {
   confidence: "HIGH" | "MEDIUM" | "LOW";
 }
 
-async function runStage3(
+function normalizeBulletCandidates(response: unknown): BulletCandidate[] {
+  if (!Array.isArray(response)) return [];
+  return response.flatMap((bullet, index) => {
+    if (typeof bullet === "string" && bullet.trim()) {
+      return [{
+        rank: index + 1,
+        text: bullet.replace(/^\s*\d+[.)]\s*/, ""),
+        confidence: "MEDIUM" as const,
+      }];
+    }
+    if (
+      bullet &&
+      typeof bullet === "object" &&
+      "text" in bullet &&
+      typeof bullet.text === "string" &&
+      bullet.text.trim()
+    ) {
+      const candidate = bullet as Partial<BulletCandidate>;
+      return [{
+        rank: typeof candidate.rank === "number" ? candidate.rank : index + 1,
+        text: candidate.text!.replace(/^\s*\d+[.)]\s*/, ""),
+        confidence: candidate.confidence ?? "MEDIUM",
+      }];
+    }
+    return [];
+  });
+}
+
+export async function runStage3(
   uploadId: string,
   evaluationId: string,
-  entries: ParsedEntry[],
   soldierInfo: { rank: string; mos: string; dutyTitle: string; formType: string },
 ): Promise<void> {
   await prisma.supportFormUpload.update({
@@ -214,33 +289,38 @@ async function runStage3(
   // Get the IDs of the stored AIExtractedEntry rows (for sourceEntryIds linking)
   const storedEntries = await prisma.aIExtractedEntry.findMany({
     where: { uploadId },
-    select: { id: true, section: true, what: true },
+    select: { id: true, section: true, what: true, impact: true, date: true, context: true },
   });
+  let persistedSuggestionCount = 0;
+  const generationFailures: string[] = [];
 
   for (const sectionKey of sections) {
-    const sectionEntries = entries.filter(
-      (e) => e.section.toUpperCase() === sectionKey,
-    );
-
-    if (sectionEntries.length === 0) {
-      // Generate with just the section definition (no support form entries for this section)
-    }
+    const sectionEntries = storedEntries.filter((entry) => entry.section === sectionKey);
+    if (sectionEntries.length === 0) continue;
 
     // Retrieve relevant regulation context for this section via RAG
-    const regQuery = `NCOER ${sectionKey} section bullet writing ${SECTION_DEFINITIONS[sectionKey] ?? sectionKey}`;
+    const formCategory = soldierInfo.formType.startsWith("OER") ? "OER" : "NCOER";
+    const regQuery = `${formCategory} ${sectionKey} section performance writing ${SECTION_DEFINITIONS[sectionKey] ?? sectionKey}`;
     const regChunks = await searchRegulations(regQuery, 3);
     const regContext = regChunks
       .map((c) => `[${c.docTitle} ${c.section}] ${c.heading}:\n${c.content.slice(0, 600)}`)
       .join("\n\n");
 
-    const formNumber = soldierInfo.formType.includes("9_1") ? "9-1" : "9-2";
+    const formLabel = soldierInfo.formType.replaceAll("_", " ");
 
-    const systemPrompt = `${SYSTEM_PROMPT}
+    const systemPrompt = `${systemPromptForFormType(soldierInfo.formType)}
 
 ARMY REGULATION CONTEXT (for accuracy):
 ${regContext}`;
 
-    const userPrompt = `You are a senior NCO writing NCOER bullets for the ${sectionKey} section of a DA 2166-${formNumber} evaluation.
+    for (const [entryIndex, entry] of sectionEntries.entries()) {
+      const evidence = [
+        `What happened: ${entry.what}`,
+        ...(entry.impact ? [`Impact: ${entry.impact}`] : []),
+        ...(entry.date ? [`Date or period: ${entry.date}`] : []),
+        ...(entry.context ? [`Context: ${entry.context}`] : []),
+      ].join("\n");
+      const userPrompt = `You are writing one rater performance suggestion for the ${sectionKey} section of a ${formLabel} evaluation.
 You are writing on behalf of the rater.
 
 SOLDIER: ${soldierInfo.rank}, MOS ${soldierInfo.mos}
@@ -249,67 +329,66 @@ DUTY TITLE: ${soldierInfo.dutyTitle}
 SECTION DEFINITION:
 ${SECTION_DEFINITIONS[sectionKey] ?? sectionKey}
 
-SUPPORT FORM ENTRIES FOR THIS SECTION:
-${
-  sectionEntries.length > 0
-    ? sectionEntries.map((e, i) => {
-        const parts = [`${i + 1}. ${e.what}`];
-        if (e.impact) parts.push(`   Impact: ${e.impact}`);
-        if (e.date) parts.push(`   Date: ${e.date}`);
-        if (e.context) parts.push(`   Context: ${e.context}`);
-        return parts.join("\n");
-      }).join("\n")
-    : "(No support form entries for this section — generate based on role/rank/MOS context)"
-}
+SOURCE FACT:
+${evidence}
 
-Write exactly 5 bullet candidates, ranked best to worst. Each bullet must:
-- Start with a strong action verb (past tense: "Led", "Trained", "Achieved", "Developed", etc.)
-- Follow the Army action-impact format: what the soldier did, and what resulted
-- Contain NO personal pronouns (no "he", "she", "they", "his", "her")
+Write exactly one evaluation performance candidate grounded only in the source fact. Do not combine it with another accomplishment and do not invent missing details. The candidate must:
+- Start with a strong past-tense action verb
+- Follow the Army action-impact format when the source supports an impact
+- Contain no personal pronouns
 - Be 200 characters or fewer
-- Sound like a senior leader wrote it
 
+If the source fact cannot support an evaluation candidate, return an empty JSON array.
 Output JSON only. No preamble. No markdown. Format:
 [{ "rank": 1, "text": "...", "confidence": "HIGH|MEDIUM|LOW" }]`;
 
-    let bullets: BulletCandidate[] = [];
-    try {
-      bullets = await callClaudeForJson<BulletCandidate[]>({
-        systemPrompt,
-        userPrompt,
-        maxTokens: 1500,
-      });
-    } catch {
-      // If JSON parse fails, skip this section
-      continue;
-    }
+      let response: unknown;
+      try {
+        response = await callOpenAIForJson<unknown>({
+          systemPrompt,
+          userPrompt,
+          maxTokens: 500,
+        });
+      } catch (error) {
+        const message = sanitizeTextForStorage(error instanceof Error ? error.message : String(error));
+        generationFailures.push(`${sectionKey}: ${message}`);
+        console.warn(`[pipeline] Bullet generation failed for ${sectionKey}: ${message}`);
+        continue;
+      }
 
-    // Get sourceEntryIds for this section
-    const sectionStoredEntries = storedEntries.filter(
-      (e) => e.section === sectionKey,
-    );
-    const sourceIds = sectionStoredEntries.map((e) => e.id);
+      const candidate = normalizeBulletCandidates(response)[0];
+      if (!candidate) {
+        const responseSummary = sanitizeTextForStorage(JSON.stringify(response)).slice(0, 300);
+        const message = `Model returned no evidence-grounded candidate${responseSummary ? `: ${responseSummary}` : ""}`;
+        generationFailures.push(`${sectionKey}: ${message}`);
+        console.warn(`[pipeline] Bullet generation skipped ${sectionKey} source ${entry.id}: ${message}`);
+        continue;
+      }
 
-    // Persist bullet suggestions
-    await prisma.aIBulletSuggestion.createMany({
-      data: bullets
-        .filter((b) => b.text && typeof b.text === "string")
-        .map((b) => ({
+      const created = await prisma.aIBulletSuggestion.create({
+        data: {
           evaluationId,
           uploadId,
           sectionKey: sectionKey as never,
-          text: sanitizeBulletText(b.text).slice(0, 300),
-          confidence: (b.confidence ?? "MEDIUM") as never,
-          rank: b.rank ?? 1,
+          text: sanitizeBulletText(candidate.text).slice(0, 300),
+          confidence: (candidate.confidence ?? "MEDIUM") as never,
+          rank: entryIndex + 1,
           status: "PENDING_REVIEW" as never,
-          sourceEntryIds: sourceIds,
-        })),
-    });
+          sourceEntryIds: [entry.id],
+          sourceSnapshot: [{ entryId: entry.id, rawText: evidence, artifactCaptions: [] }],
+        },
+      });
+      persistedSuggestionCount += created ? 1 : 0;
+    }
+  }
+
+  if (persistedSuggestionCount === 0) {
+    throw new Error(`No bullet suggestions were generated. ${generationFailures.join(" ")}`.trim());
   }
 
   await prisma.supportFormUpload.update({
     where: { id: uploadId },
-    data: { parseStatus: "COMPLETE" },
+    data: { parseStatus: "COMPLETE", parseError: null },
   });
 }
 
@@ -336,15 +415,16 @@ export interface PipelineArgs {
 export async function runSupportFormPipeline(args: PipelineArgs): Promise<void> {
   try {
     const rawExtract = await runStage1(args.uploadId, args.fileUrl, args.fileType);
+    await prefillEvaluationDutyDescription(args.evaluationId, rawExtract);
     const entries = await runStage2(args.uploadId, args.evaluationId, rawExtract);
-    await runStage3(args.uploadId, args.evaluationId, entries, args.soldierInfo);
+    await runStage3(args.uploadId, args.evaluationId, args.soldierInfo);
   } catch (err) {
     console.error("[pipeline] Error in support form pipeline:", err);
     await prisma.supportFormUpload.update({
       where: { id: args.uploadId },
       data: {
         parseStatus: "FAILED",
-        parseError: err instanceof Error ? err.message : String(err),
+        parseError: sanitizeTextForStorage(err instanceof Error ? err.message : String(err)),
       },
     });
   }
@@ -362,15 +442,16 @@ export async function generateBulletsFromScratch(args: {
   raterDescription: string;
   soldierInfo: { rank: string; mos: string; dutyTitle: string; formType: string };
 }): Promise<BulletCandidate[]> {
-  const regQuery = `NCOER ${args.sectionKey} section ${SECTION_DEFINITIONS[args.sectionKey] ?? args.sectionKey}`;
+  const formCategory = args.soldierInfo.formType.startsWith("OER") ? "OER" : "NCOER";
+  const regQuery = `${formCategory} ${args.sectionKey} section ${SECTION_DEFINITIONS[args.sectionKey] ?? args.sectionKey}`;
   const regChunks = await searchRegulations(regQuery, 3);
   const regContext = regChunks
     .map((c) => `[${c.docTitle} ${c.section}] ${c.heading}:\n${c.content.slice(0, 600)}`)
     .join("\n\n");
 
-  const formNumber = args.soldierInfo.formType.includes("9_1") ? "9-1" : "9-2";
+  const formLabel = args.soldierInfo.formType.replaceAll("_", " ");
 
-  const systemPrompt = `${SYSTEM_PROMPT}
+  const systemPrompt = `${systemPromptForFormType(args.soldierInfo.formType)}
 
 ARMY REGULATION CONTEXT (for accuracy):
 ${regContext}`;
@@ -385,15 +466,16 @@ ${SECTION_DEFINITIONS[args.sectionKey] ?? args.sectionKey}
 RATER'S DESCRIPTION:
 ${args.raterDescription}
 
-Write 5 NCOER bullet candidates for DA 2166-${formNumber}. Rank best to worst.
+Write 5 evaluation bullet candidates for ${formLabel}. Rank best to worst.
 Each bullet: action verb, action-impact format, no pronouns, ≤200 chars.
 Output JSON only: [{ "rank": 1, "text": "...", "confidence": "HIGH|MEDIUM|LOW" }]`;
 
-  return callClaudeForJson<BulletCandidate[]>({
+  const response = await callOpenAIForJson<unknown>({
     systemPrompt,
     userPrompt,
     maxTokens: 1500,
   });
+  return normalizeBulletCandidates(response);
 }
 // \u2500\u2500\u2500 Generate bullets from selected Support Form entries (guided-flow entries) \u2500\u2500\u2500\u2500\u2500\u2500
 
@@ -419,15 +501,16 @@ export async function generateBulletsFromEntries(args: {
     e.artifacts.some((a) => a.flaggedByServiceMember),
   );
 
-  const regQuery = `NCOER ${args.sectionKey} section ${SECTION_DEFINITIONS[args.sectionKey] ?? args.sectionKey}`;
+  const formCategory = args.soldierInfo.formType.startsWith("OER") ? "OER" : "NCOER";
+  const regQuery = `${formCategory} ${args.sectionKey} section ${SECTION_DEFINITIONS[args.sectionKey] ?? args.sectionKey}`;
   const regChunks = await searchRegulations(regQuery, 3);
   const regContext = regChunks
     .map((c) => `[${c.docTitle} ${c.section}] ${c.heading}:\n${c.content.slice(0, 600)}`)
     .join("\n\n");
 
-  const formNumber = args.soldierInfo.formType.includes("9_1") ? "9-1" : "9-2";
+  const formLabel = args.soldierInfo.formType.replaceAll("_", " ");
 
-  const systemPrompt = `${SYSTEM_PROMPT}
+  const systemPrompt = `${systemPromptForFormType(args.soldierInfo.formType)}
 
 ARMY REGULATION CONTEXT (for accuracy):
 ${regContext}`;
@@ -455,15 +538,16 @@ ${SECTION_DEFINITIONS[args.sectionKey] ?? args.sectionKey}
 SOLDIER-LOGGED ACCOMPLISHMENTS SELECTED BY THE RATER:
 ${entryText || "(none)"}
 
-Write 5 NCOER bullet candidates for DA 2166-${formNumber}. Rank best to worst.
+Write 5 evaluation bullet candidates for ${formLabel}. Rank best to worst.
 Each bullet: action verb, action-impact format, no pronouns, \u2264200 chars.
 Output JSON only: [{ "rank": 1, "text": "...", "confidence": "HIGH|MEDIUM|LOW" }]`;
 
-  const bullets = await callClaudeForJson<BulletCandidate[]>({
+  const response = await callOpenAIForJson<unknown>({
     systemPrompt,
     userPrompt,
     maxTokens: 1500,
   });
+  const bullets = normalizeBulletCandidates(response);
 
   return { bullets, hasFlaggedArtifacts };
 }

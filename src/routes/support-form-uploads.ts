@@ -24,7 +24,7 @@ import {
 } from "@/lib/ai/support-form-pipeline";
 import { requireEvalChainRole, requireEntriesBelongToEval } from "@/lib/utils/chain-auth";
 import { checkUnsupportedFacts } from "@/lib/ai/unsupported-fact-check";
-import { sanitizeBulletText } from "@/lib/ai/claude";
+import { sanitizeBulletText } from "@/lib/ai/openai";
 
 export const supportFormUploadsRouter = Router();
 
@@ -57,10 +57,6 @@ const scratchSchema = z.object({
     "ACHIEVES",
   ]),
   raterDescription: z.string().min(10).max(4000),
-  soldierRank: z.string().min(1),
-  soldierMos: z.string().min(1),
-  dutyTitle: z.string().min(1),
-  formType: z.string().min(1),
 });
 
 const bulletReviewSchema = z.object({
@@ -79,11 +75,32 @@ const fromEntriesSchema = z.object({
     "ACHIEVES",
   ]),
   entryIds: z.array(z.string().min(1)).min(1),
-  soldierRank: z.string().min(1),
-  soldierMos: z.string().min(1),
-  dutyTitle: z.string().min(1),
-  formType: z.string().min(1),
 });
+
+async function loadGenerationContext(evaluationId: string) {
+  const evaluation = await prisma.evaluation.findUnique({
+    where: { id: evaluationId },
+    include: {
+      ratingChain: { include: { ratedSoldier: true } },
+      supportForm: { select: { dutyTitle: true } },
+    },
+  });
+  if (!evaluation) throw new HttpError(404, "Evaluation not found.");
+  return {
+    rank: evaluation.ratingChain.ratedSoldier.rank,
+    mos: evaluation.ratingChain.ratedSoldier.mos,
+    dutyTitle: evaluation.principalDutyTitle ?? evaluation.supportForm?.dutyTitle ?? "Soldier",
+    formType: evaluation.formType,
+  };
+}
+
+function uploadContentType(fileUrl: string, fileType: string): string {
+  if (fileType === "pdf") return "application/pdf";
+  const extension = path.extname(fileUrl).toLowerCase();
+  if (extension === ".png") return "image/png";
+  if (extension === ".webp") return "image/webp";
+  return "image/jpeg";
+}
 
 // ─── POST /api/support-form-uploads/:evalId ───────────────────────────────────
 
@@ -219,6 +236,108 @@ supportFormUploadsRouter.post(
   }),
 );
 
+// POST /api/support-form-uploads/:evalId/reprocess
+// Creates a new upload-processing record from the latest original file. Prior
+// suggestions stay intact for history; the status endpoint returns this latest
+// run, so the rater sees the new evidence-grounded suggestions.
+supportFormUploadsRouter.post(
+  "/:evalId/reprocess",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { evalId } = req.params;
+    if (!evalId) throw new HttpError(400, "Missing evalId.");
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    await requireEvalChainRole(evalId, req.user, ["RATER", "SENIOR_RATER"]);
+
+    const [evaluation, latestUpload] = await Promise.all([
+      prisma.evaluation.findUnique({
+        where: { id: evalId },
+        include: { ratingChain: { include: { ratedSoldier: true } } },
+      }),
+      prisma.supportFormUpload.findFirst({
+        where: { evaluationId: evalId, parseStatus: "COMPLETE" },
+        orderBy: { createdAt: "desc" },
+      }),
+    ]);
+    if (!evaluation) throw new HttpError(404, "Evaluation not found.");
+    if (!latestUpload) throw new HttpError(409, "No completed support-form upload is available to reprocess.");
+
+    const reprocessedUpload = await prisma.supportFormUpload.create({
+      data: {
+        evaluationId: evalId,
+        uploadedById: req.user.id,
+        fileUrl: latestUpload.fileUrl,
+        fileType: latestUpload.fileType,
+        parseStatus: "PENDING_EXTRACT",
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        evaluationId: evalId,
+        actorId: req.user.id,
+        action: "SUPPORT_FORM_REPROCESSED",
+        entityType: "SupportFormUpload",
+        entityId: reprocessedUpload.id,
+        metadata: { sourceUploadId: latestUpload.id },
+      },
+    });
+
+    const soldier = evaluation.ratingChain.ratedSoldier;
+    runSupportFormPipeline({
+      uploadId: reprocessedUpload.id,
+      evaluationId: evalId,
+      fileUrl: reprocessedUpload.fileUrl,
+      fileType: reprocessedUpload.fileType,
+      soldierInfo: {
+        rank: String(soldier.rank),
+        mos: soldier.mos,
+        dutyTitle: evaluation.principalDutyTitle ?? "Soldier",
+        formType: String(evaluation.formType),
+      },
+    }).catch((err) => {
+      console.error("[upload] Reprocessing error (post-response):", err);
+    });
+
+    res.status(202).json({ uploadId: reprocessedUpload.id, status: reprocessedUpload.parseStatus });
+  }),
+);
+
+// GET /api/support-form-uploads/:evalId/file
+// The browser cannot directly open dev-mode file:// uploads and must not be
+// given unauthenticated storage paths. Stream the original file only after the
+// caller passes evaluation relationship authorization.
+supportFormUploadsRouter.get(
+  "/:evalId/file",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { evalId } = req.params;
+    if (!evalId) throw new HttpError(400, "Missing evalId.");
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    await requireEvalChainRole(evalId, req.user, ["RATER", "SENIOR_RATER", "REVIEWER", "SOLDIER"]);
+    const latestUpload = await prisma.supportFormUpload.findFirst({
+      where: { evaluationId: evalId },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!latestUpload) throw new HttpError(404, "Uploaded support form not found.");
+
+    res.setHeader("Content-Type", uploadContentType(latestUpload.fileUrl, latestUpload.fileType));
+    res.setHeader("Content-Disposition", "inline; filename=uploaded-support-form");
+    if (latestUpload.fileUrl.startsWith("file://")) {
+      const localPath = path.resolve(latestUpload.fileUrl.slice("file://".length));
+      const tempUploadsPath = `${path.resolve(process.cwd(), "temp-uploads")}${path.sep}`;
+      if (!localPath.startsWith(tempUploadsPath) || !fs.existsSync(localPath)) {
+        throw new HttpError(404, "Uploaded support form file is no longer available.");
+      }
+      res.sendFile(localPath);
+      return;
+    }
+
+    const fileResponse = await fetch(latestUpload.fileUrl);
+    if (!fileResponse.ok) throw new HttpError(502, "Unable to retrieve the uploaded support form.");
+    res.send(Buffer.from(await fileResponse.arrayBuffer()));
+  }),
+);
+
 // ─── GET /api/support-form-uploads/:evalId/status ────────────────────────────
 
 supportFormUploadsRouter.get(
@@ -268,19 +387,15 @@ supportFormUploadsRouter.post(
     const { evalId } = req.params;
     if (!evalId) throw new HttpError(400, "Missing evalId.");
     if (!req.user) throw new HttpError(401, "Not authenticated");
-    await requireEvalChainRole(evalId, req.user, ["RATER", "SENIOR_RATER", "REVIEWER"]);
+    await requireEvalChainRole(evalId, req.user, ["RATER", "SENIOR_RATER"]);
     const body = scratchSchema.parse(req.body);
+    const soldierInfo = await loadGenerationContext(evalId);
 
     const bullets = await generateBulletsFromScratch({
       evaluationId: evalId,
       sectionKey: body.sectionKey,
       raterDescription: body.raterDescription,
-      soldierInfo: {
-        rank: body.soldierRank,
-        mos: body.soldierMos,
-        dutyTitle: body.dutyTitle,
-        formType: body.formType,
-      },
+      soldierInfo,
     });
 
     // Rater's own free-text description doubles as the "source" here —
@@ -338,8 +453,9 @@ supportFormUploadsRouter.post(
     const { evalId } = req.params;
     if (!evalId) throw new HttpError(400, "Missing evalId.");
     if (!req.user) throw new HttpError(401, "Not authenticated");
-    await requireEvalChainRole(evalId, req.user, ["RATER", "SENIOR_RATER", "REVIEWER"]);
+    await requireEvalChainRole(evalId, req.user, ["RATER", "SENIOR_RATER"]);
     const body = fromEntriesSchema.parse(req.body);
+    const soldierInfo = await loadGenerationContext(evalId);
 
     // Re-authorize: reject any entryId that doesn't belong to this
     // evaluation's linked support form (previously trusted client input
@@ -350,12 +466,7 @@ supportFormUploadsRouter.post(
       evaluationId: evalId,
       sectionKey: body.sectionKey,
       entryIds: body.entryIds,
-      soldierInfo: {
-        rank: body.soldierRank,
-        mos: body.soldierMos,
-        dutyTitle: body.dutyTitle,
-        formType: body.formType,
-      },
+      soldierInfo,
     });
 
     // Immutable snapshot of the source text at generation time (MVP audit
@@ -439,11 +550,7 @@ supportFormUploadsRouter.patch(
     });
     if (!suggestion) throw new HttpError(404, "Suggestion not found.");
 
-    await requireEvalChainRole(suggestion.evaluationId, req.user, [
-      "RATER",
-      "SENIOR_RATER",
-      "REVIEWER",
-    ]);
+    await requireEvalChainRole(suggestion.evaluationId, req.user, ["RATER", "SENIOR_RATER"]);
 
     if (body.action === "REJECTED") {
       const result = await prisma.aIBulletSuggestion.updateMany({

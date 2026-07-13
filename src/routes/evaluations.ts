@@ -14,6 +14,8 @@ import { staleSigDetect, captureSignatureHash } from "@/lib/signatures/content-h
 import { checkCompleteness } from "@/lib/support-form/completeness";
 import { recomputeEvalStatus } from "@/lib/evaluations/status";
 import { requireEvalChainRole } from "@/lib/utils/chain-auth";
+import { authorizeEvaluationView, canEditEvaluationSection, canSignEvaluationAs, canViewEvaluation } from "@/lib/authorization-policies";
+import { authorizeDelegatedAction } from "@/lib/access-assistance/authorization";
 import { srMqCapPercentFor, isNcoGrade } from "@/lib/utils/grade";
 
 export const evaluationsRouter = Router();
@@ -36,6 +38,7 @@ const ALL_FORM_TYPES = [
 
 const createEvalSchema = z.object({
   ratingChainId: z.string().min(1),
+  ratingSchemeAssignmentId: z.string().min(1).optional(),
   supportFormId: z.string().optional(),
   formType: z.enum(ALL_FORM_TYPES),
   periodStart: z.coerce.date(),
@@ -60,6 +63,17 @@ const updateEvalSchema = z.object({
   seniorRaterRating: z.string().nullish(),
 });
 
+const administrativeFieldsSchema = z.object({
+  nonRatedMonths: z.number().int().min(0).max(99).optional(),
+  nonRatedCodes: z.string().trim().max(100).nullable().optional(),
+  statusCode: z.string().trim().max(40).nullable().optional(),
+  numberOfEnclosures: z.number().int().min(0).max(99).optional(),
+}).refine((fields) => Object.keys(fields).length > 0, "Provide at least one administrative field.");
+
+const administrativeReturnResponseSchema = z.object({
+  note: z.string().trim().min(1).max(2000),
+});
+
 const signSchema = z.object({
   role: z.enum(["RATER", "SENIOR_RATER", "REVIEWER", "SOLDIER"]),
   action: z.enum(["SIGN", "DECLINE"]),
@@ -77,13 +91,16 @@ evaluationsRouter.get(
     const role = req.query.role as string | undefined;
     const userId = req.user?.id;
 
-    let whereClause: Parameters<typeof prisma.evaluation.findMany>[0]["where"] = {};
+    let whereClause: NonNullable<Parameters<typeof prisma.evaluation.findMany>[0]>["where"] = {};
 
     if (role === "rater" && userId) {
       whereClause = { ratingChain: { raterId: userId } };
     } else if (role === "soldier" && userId) {
       whereClause = { ratingChain: { ratedSoldierId: userId } };
+    } else if (userId && !req.user?.roles.includes("ADMIN")) {
+      whereClause = { ratingChain: { OR: [{ ratedSoldierId: userId }, { raterId: userId }, { seniorRaterId: userId }, { reviewerId: userId }] } };
     }
+    whereClause = { AND: [whereClause, { disposition: "ACTIVE" }] };
 
     const evals = await prisma.evaluation.findMany({
       where: whereClause,
@@ -104,13 +121,53 @@ evaluationsRouter.post(
   asyncHandler(async (req, res) => {
     const body = createEvalSchema.parse(req.body);
 
-    // Resolve rater's rank to determine supplementary review requirement
+    // The legacy chain remains required during transition, but a new evaluation
+    // may be governed by a published, effective-dated assignment and snapshot.
     const chain = await prisma.ratingChain.findUnique({
       where: { id: body.ratingChainId },
-      include: { rater: true },
+      include: { ratedSoldier: true, rater: true, seniorRater: true, reviewer: true },
     });
     if (!chain) throw new HttpError(404, "Rating chain not found");
-    const requiresSupplementaryReview = chain.rater.rank === "FIRST_LT";
+    if (!chain.isActive) throw new HttpError(409, "The selected rating chain is no longer active.", "RATING_CHAIN_NOT_ACTIVE");
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    const canInitiate = req.user.roles.includes("ADMIN") || [chain.ratedSoldierId, chain.raterId, chain.seniorRaterId].includes(req.user.id);
+    if (!canInitiate) throw new HttpError(403, "You are not authorized to initiate an evaluation for this rating chain.");
+
+    const now = new Date();
+    const assignment = body.ratingSchemeAssignmentId
+      ? await prisma.ratingSchemeAssignment.findUnique({
+          where: { id: body.ratingSchemeAssignmentId },
+          include: { ratedSoldier: true, rater: true, seniorRater: true, supplementaryReviewer: true },
+        })
+      : await prisma.ratingSchemeAssignment.findFirst({
+          where: {
+            ratedSoldierId: chain.ratedSoldierId,
+            raterId: chain.raterId,
+            seniorRaterId: chain.seniorRaterId,
+            supplementaryReviewerId: chain.reviewerId,
+            status: "PUBLISHED",
+            effectiveFrom: { lte: now },
+            OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }],
+          },
+          orderBy: { effectiveFrom: "desc" },
+          include: { ratedSoldier: true, rater: true, seniorRater: true, supplementaryReviewer: true },
+        });
+    if (body.ratingSchemeAssignmentId && !assignment) {
+      throw new HttpError(404, "Rating scheme assignment not found", "RATING_ASSIGNMENT_NOT_FOUND");
+    }
+    if (assignment) {
+      const assignmentMatchesChain = assignment.ratedSoldierId === chain.ratedSoldierId
+        && assignment.raterId === chain.raterId
+        && assignment.seniorRaterId === chain.seniorRaterId
+        && (assignment.supplementaryReviewerId ?? null) === (chain.reviewerId ?? null);
+      if (assignment.status !== "PUBLISHED" || assignment.effectiveFrom > now || (assignment.effectiveTo && assignment.effectiveTo < now)) {
+        throw new HttpError(409, "The rating assignment is not currently effective.", "RATING_ASSIGNMENT_NOT_EFFECTIVE");
+      }
+      if (!assignmentMatchesChain) {
+        throw new HttpError(422, "The legacy rating chain does not match the published assignment.", "RATING_ASSIGNMENT_CHAIN_MISMATCH");
+      }
+    }
+    const requiresSupplementaryReview = assignment?.requiresSupplementaryReview ?? false;
 
     // ── Support-form gate (2026-07 review) ──────────────────────────
     // Authoritative — the frontend CTA is just courtesy. A Soldier cannot
@@ -121,8 +178,10 @@ evaluationsRouter.post(
     if (!supportFormId) {
       const activeForm = await prisma.supportForm.findFirst({
         where: {
-          ratingChainId: body.ratingChainId,
+          ...(assignment ? { ratingSchemeAssignmentId: assignment.id } : { ratingChainId: body.ratingChainId }),
           isActive: true,
+          disposition: "ACTIVE",
+          status: { notIn: ["CONSUMED", "ARCHIVED", "QUARANTINED"] },
           evaluations: { none: {} },
         },
         orderBy: { createdAt: "desc" },
@@ -144,16 +203,65 @@ evaluationsRouter.post(
       );
     }
 
-    const created = await prisma.evaluation.create({
-      data: {
-        ...body,
-        supportFormId,
-        requiresSupplementaryReview,
-        sections: {
-          create: PART_IV_SECTIONS.map((section) => ({ section })),
+    const supportForm = await prisma.supportForm.findUnique({ where: { id: supportFormId } });
+    if (!supportForm || supportForm.disposition !== "ACTIVE" || supportForm.status === "CONSUMED") {
+      throw new HttpError(409, "This support form is no longer available for evaluation creation.", "SUPPORT_FORM_UNAVAILABLE");
+    }
+    if (assignment && supportForm.ratingSchemeAssignmentId !== assignment.id) {
+      throw new HttpError(422, "The support form does not belong to this rating assignment.", "SUPPORT_FORM_ASSIGNMENT_MISMATCH");
+    }
+
+    const created = await prisma.$transaction(async (tx) => {
+      const evaluation = await tx.evaluation.create({
+        data: {
+          ratingChainId: body.ratingChainId,
+          supportFormId,
+          formType: body.formType,
+          periodStart: body.periodStart,
+          periodEnd: body.periodEnd,
+          ratedMonths: body.ratedMonths,
+          reasonForSubmission: body.reasonForSubmission,
+          requiresSupplementaryReview,
+          principalDutyTitle: supportForm.dutyTitle,
+          dutyMosc: supportForm.dutyMosc,
+          dailyDutiesScope: supportForm.dailyDutiesScope,
+          areasOfSpecialEmphasis: supportForm.areasOfEmphasis,
+          appointedDuties: supportForm.appointedDuties,
+          sections: {
+            create: PART_IV_SECTIONS.map((section) => ({ section })),
+          },
         },
-      },
-      include: { sections: true },
+        include: { sections: true },
+      });
+      if (assignment) {
+        await tx.evaluationRatingSnapshot.create({
+          data: {
+            evaluationId: evaluation.id,
+            ratingSchemeAssignmentId: assignment.id,
+            ratedSoldierId: assignment.ratedSoldierId,
+            raterId: assignment.raterId,
+            seniorRaterId: assignment.seniorRaterId,
+            supplementaryReviewerId: assignment.supplementaryReviewerId,
+            ratedRank: assignment.ratedSoldier.rank,
+            ratedCategory: assignment.ratedSoldier.category ?? "NCO",
+            raterRank: assignment.rater.rank,
+            raterCategory: assignment.rater.category ?? "NCO",
+            seniorRaterRank: assignment.seniorRater.rank,
+            seniorRaterCategory: assignment.seniorRater.category ?? "NCO",
+            formCategory: assignment.formCategory,
+            ratedGrade: assignment.ratedSoldier.rank,
+            exceptionToPolicyId: assignment.exceptionToPolicyId,
+          },
+        });
+      }
+      const consumed = await tx.supportForm.updateMany({
+        where: { id: supportFormId, disposition: "ACTIVE", status: { not: "CONSUMED" } },
+        data: { status: "CONSUMED", isActive: false, consumedByEvaluationId: evaluation.id, consumedAt: new Date() },
+      });
+      if (consumed.count !== 1) {
+        throw new HttpError(409, "This support form was consumed by another evaluation.", "SUPPORT_FORM_UNAVAILABLE");
+      }
+      return evaluation;
     });
 
     // Auto-generate AR 623-3 milestones
@@ -188,6 +296,10 @@ evaluationsRouter.get(
       res.status(404).json({ error: "Evaluation not found" });
       return;
     }
+    const access = req.user ? await authorizeEvaluationView(req.user, evaluation, evaluation.ratingChain) : { allowed: false };
+    if (!access.allowed) {
+      throw new HttpError(404, "Evaluation not found");
+    }
 
     // ── Senior Rater MQ profile snapshot (real live data, not the unused
     // SeniorRaterProfile JSON table which is never updated in normal use) ──
@@ -220,6 +332,156 @@ evaluationsRouter.get(
   }),
 );
 
+// DELETE /api/evaluations/:id
+// Draft work may be discarded before formal routing. The consumed support form
+// is restored for a new attempt; signed or routed records are never deletable.
+evaluationsRouter.delete(
+  "/:id",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    const evaluation = await prisma.evaluation.findUnique({
+      where: { id: req.params.id },
+      include: { ratingChain: true, supportForm: true },
+    });
+    if (!evaluation) throw new HttpError(404, "Evaluation not found");
+    if (evaluation.disposition !== "ACTIVE") {
+      throw new HttpError(409, "Quarantined or archived evaluations cannot be deleted through the draft workflow.", "EVALUATION_NOT_ACTIVE");
+    }
+    if (!["DRAFT", "RATER_IN_PROGRESS"].includes(evaluation.status)) {
+      throw new HttpError(
+        409,
+        "Only draft or rater-in-progress evaluations may be deleted.",
+        "EVALUATION_NOT_DELETABLE",
+      );
+    }
+    const canDelete = req.user.roles.includes("ADMIN") ||
+      req.user.id === evaluation.ratingChain.ratedSoldierId ||
+      req.user.id === evaluation.ratingChain.raterId;
+    if (!canDelete) throw new HttpError(403, "You are not authorized to delete this evaluation.");
+
+    await prisma.$transaction(async (transaction) => {
+      await transaction.auditLog.updateMany({
+        where: { evaluationId: evaluation.id },
+        data: { evaluationId: null },
+      });
+      await transaction.auditLog.create({
+        data: {
+          actorId: req.user!.id,
+          action: "EVALUATION_DRAFT_DELETED",
+          entityType: "Evaluation",
+          entityId: evaluation.id,
+          metadata: { status: evaluation.status, restoredSupportFormId: evaluation.supportFormId },
+        },
+      });
+      await transaction.aIBulletSuggestion.deleteMany({ where: { evaluationId: evaluation.id } });
+      await transaction.aIExtractedEntry.deleteMany({ where: { evaluationId: evaluation.id } });
+      await transaction.supportFormUpload.deleteMany({ where: { evaluationId: evaluation.id } });
+      await transaction.evaluationReturn.deleteMany({ where: { evaluationId: evaluation.id } });
+      await transaction.signature.deleteMany({ where: { evaluationId: evaluation.id } });
+      await transaction.notification.deleteMany({ where: { evaluationId: evaluation.id } });
+      await transaction.evalMilestone.deleteMany({ where: { evaluationId: evaluation.id } });
+      await transaction.evalComment.deleteMany({ where: { evaluationId: evaluation.id } });
+      await transaction.evalSection.deleteMany({ where: { evaluationId: evaluation.id } });
+      await transaction.evaluation.delete({ where: { id: evaluation.id } });
+
+      if (evaluation.supportFormId && evaluation.supportForm?.consumedByEvaluationId === evaluation.id) {
+        await transaction.supportForm.update({
+          where: { id: evaluation.supportFormId },
+          data: {
+            isActive: true,
+            status: evaluation.supportForm.completedAt ? "FINALIZED" : "ACTIVE",
+            consumedByEvaluationId: null,
+            consumedAt: null,
+          },
+        });
+      }
+    });
+
+    res.status(204).send();
+  }),
+);
+
+// PATCH /api/evaluations/:id/administrative-fields
+// This surface deliberately excludes dates, form type, narrative, ratings,
+// signatures, and rating-chain data. It is the only delegated write path for
+// servicing administrators.
+evaluationsRouter.patch(
+  "/:id/administrative-fields",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    const body = administrativeFieldsSchema.parse(req.body);
+    const evaluation = await prisma.evaluation.findUnique({ where: { id: req.params.id }, include: { ratingChain: true } });
+    if (!evaluation || evaluation.disposition !== "ACTIVE") throw new HttpError(404, "Evaluation not found.");
+    if (["SUBMITTED", "ACCEPTED"].includes(evaluation.status)) throw new HttpError(409, "Finalized evaluations cannot be changed.");
+    const directAccess = req.user.roles.includes("ADMIN") || req.user.id === evaluation.ratingChain.raterId;
+    const delegatedAccess = directAccess
+      ? undefined
+      : await authorizeDelegatedAction({
+          actorUserId: req.user.id,
+          subjectUserId: evaluation.ratingChain.ratedSoldierId,
+          capability: "COMPLETE_ADMINISTRATIVE_FIELD",
+          evaluationId: evaluation.id,
+        });
+    if (!directAccess && !delegatedAccess?.allowed) throw new HttpError(403, "You are not authorized to complete administrative fields.");
+
+    const updated = await prisma.evaluation.update({ where: { id: evaluation.id }, data: body });
+    await prisma.auditLog.create({
+      data: {
+        evaluationId: evaluation.id,
+        actorId: req.user.id,
+        action: "EVALUATION_ADMINISTRATIVE_FIELDS_COMPLETED",
+        entityType: "Evaluation",
+        entityId: evaluation.id,
+        metadata: { fields: Object.keys(body), authorizationSource: delegatedAccess?.grant ? "DELEGATION" : "DIRECT" },
+        ...(delegatedAccess?.grant
+          ? { subjectUserId: evaluation.ratingChain.ratedSoldierId, delegationGrantId: delegatedAccess.grant.id, delegationCapability: "COMPLETE_ADMINISTRATIVE_FIELD" }
+          : {}),
+      },
+    });
+    res.json(updated);
+  }),
+);
+
+// POST /api/evaluations/:id/administrative-return-response
+// Records a clerical response without changing ratings, signatures, or status.
+evaluationsRouter.post(
+  "/:id/administrative-return-response",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    const body = administrativeReturnResponseSchema.parse(req.body);
+    const evaluation = await prisma.evaluation.findUnique({ where: { id: req.params.id }, include: { ratingChain: true } });
+    if (!evaluation || evaluation.disposition !== "ACTIVE") throw new HttpError(404, "Evaluation not found.");
+    const directAccess = req.user.roles.includes("ADMIN") || [evaluation.ratingChain.raterId, evaluation.ratingChain.seniorRaterId].includes(req.user.id);
+    const delegatedAccess = directAccess
+      ? undefined
+      : await authorizeDelegatedAction({
+          actorUserId: req.user.id,
+          subjectUserId: evaluation.ratingChain.ratedSoldierId,
+          capability: "RESPOND_TO_ADMIN_RETURN",
+          evaluationId: evaluation.id,
+        });
+    if (!directAccess && !delegatedAccess?.allowed) throw new HttpError(403, "You are not authorized to record this administrative response.");
+
+    await prisma.auditLog.create({
+      data: {
+        evaluationId: evaluation.id,
+        actorId: req.user.id,
+        action: "EVALUATION_ADMIN_RETURN_RESPONSE_RECORDED",
+        entityType: "Evaluation",
+        entityId: evaluation.id,
+        metadata: { note: body.note, authorizationSource: delegatedAccess?.grant ? "DELEGATION" : "DIRECT" },
+        ...(delegatedAccess?.grant
+          ? { subjectUserId: evaluation.ratingChain.ratedSoldierId, delegationGrantId: delegatedAccess.grant.id, delegationCapability: "RESPOND_TO_ADMIN_RETURN" }
+          : {}),
+      },
+    });
+    res.status(201).json({ recorded: true });
+  }),
+);
+
 // PATCH /api/evaluations/:id — update top-level fields (duty, sr rating, etc.)
 evaluationsRouter.patch(
   "/:id",
@@ -231,17 +493,22 @@ evaluationsRouter.patch(
     // user could edit any evaluation by ID (MVP audit 5.13 cross-cutting
     // gap: "no rating-chain authorization on section PATCH at all", which
     // applied equally to this route).
-    await requireEvalChainRole(req.params.id!, req.user, [
-      "RATER",
-      "SENIOR_RATER",
-      "REVIEWER",
-    ]);
+    const evaluation = await requireEvalChainRole(req.params.id!, req.user, ["RATER", "SENIOR_RATER"]);
     const body = updateEvalSchema.parse(req.body);
+    if ((body.principalDutyTitle !== undefined || body.dutyDescription !== undefined) && evaluation.ratingChain.raterId !== req.user.id && !req.user.roles.includes("ADMIN")) {
+      throw new HttpError(403, "Only the assigned rater may edit duty description fields.");
+    }
+    if (body.seniorRaterRating !== undefined && evaluation.ratingChain.seniorRaterId !== req.user.id && !req.user.roles.includes("ADMIN")) {
+      throw new HttpError(403, "Only the assigned senior rater may edit senior-rater assessments.");
+    }
     const updated = await prisma.evaluation.update({
       where: { id: req.params.id },
       data: {
         ...(body.principalDutyTitle !== undefined
           ? { principalDutyTitle: body.principalDutyTitle }
+          : {}),
+        ...(body.dutyDescription !== undefined
+          ? { dailyDutiesScope: body.dutyDescription }
           : {}),
         ...(body.seniorRaterRating !== undefined
           ? { seniorRaterRating: body.seniorRaterRating as never }
@@ -264,11 +531,10 @@ evaluationsRouter.patch(
     // allowed, preserving the intentional "parallel review" behavior (SR can
     // view/edit before the rater signs) rather than accidentally locking
     // that down while closing the access-control gap.
-    await requireEvalChainRole(req.params.id!, req.user, [
-      "RATER",
-      "SENIOR_RATER",
-      "REVIEWER",
-    ]);
+    const evaluation = await requireEvalChainRole(req.params.id!, req.user, ["RATER", "SENIOR_RATER"]);
+    if (!canEditEvaluationSection(req.user, req.params.section!, evaluation.ratingChain)) {
+      throw new HttpError(403, "You are not authorized to edit this evaluation section.");
+    }
     const body = updateSectionSchema.parse(req.body);
 
     // Prohibited-language / quality enforcement (MVP audit 5.14) — this is
@@ -384,7 +650,10 @@ evaluationsRouter.post(
 
     // ── AUTHORIZATION: caller must actually hold the role they're signing as ──
     // (previously any authenticated user could sign as any role on any eval).
-    await requireEvalChainRole(req.params.id!, req.user, [body.role]);
+    const evaluation = await requireEvalChainRole(req.params.id!, req.user, [body.role]);
+    if (!canSignEvaluationAs(req.user, body.role, evaluation.ratingChain)) {
+      throw new HttpError(403, "You may only sign using your assigned rating role.");
+    }
 
     // ── AUTHORIZATION: prevent the same user from signing in multiple roles ──
     // A user cannot be both the rater AND the senior rater (or any other multi-role combo)
@@ -398,6 +667,41 @@ evaluationsRouter.post(
         403,
         `You are already signed as ${alreadySigned.role} on this evaluation. A user cannot sign in multiple roles.`,
       );
+    }
+
+    if (body.action === "SIGN") {
+      if (body.role === "RATER") {
+        const completedSections = await prisma.evalSection.count({
+          where: { evaluationId: req.params.id!, section: { in: [...PART_IV_SECTIONS] }, isComplete: true },
+        });
+        if (completedSections !== PART_IV_SECTIONS.length) {
+          throw new HttpError(
+            409,
+            "All six Part IV sections must be complete before the rater signs.",
+            "RATER_SECTIONS_INCOMPLETE",
+          );
+        }
+      }
+      if (body.role === "SENIOR_RATER" && !evaluation.seniorRaterRating) {
+        throw new HttpError(
+          409,
+          "A senior-rater overall assessment is required before signing.",
+          "SENIOR_RATER_ASSESSMENT_REQUIRED",
+        );
+      }
+      const prerequisiteRoles: Partial<Record<z.infer<typeof signSchema>["role"], z.infer<typeof signSchema>["role"]>> = {
+        SENIOR_RATER: "RATER",
+        SOLDIER: "SENIOR_RATER",
+        REVIEWER: "SOLDIER",
+      };
+      const prerequisiteRole = prerequisiteRoles[body.role];
+      if (prerequisiteRole && !existingSigs.some((signature) => signature.role === prerequisiteRole && signature.status === "SIGNED")) {
+        throw new HttpError(
+          409,
+          `${prerequisiteRole.replace("_", " ")} must sign before ${body.role.replace("_", " ")} can sign.`,
+          "SIGNATURE_OUT_OF_SEQUENCE",
+        );
+      }
     }
 
     // Capture content hash at signing time

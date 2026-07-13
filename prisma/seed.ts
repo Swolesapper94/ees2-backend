@@ -4,7 +4,7 @@ const prisma = new PrismaClient();
 
 /**
  * Clean minimal seed for dev testing.
- * Creates only the 5 dev personas matched to auth.ts DEV_USERS.
+ * Creates the dev personas matched to auth.ts DEV_USERS.
  */
 async function main() {
   // ── Unit ──────────────────────────────────────────────────────
@@ -14,7 +14,7 @@ async function main() {
     create: { name: "Dev Test Unit", uic: "DEV-505" },
   });
 
-  // ── 5-Persona Dev Users (matched to auth.ts DEV_USERS) ─────────
+  // ── Dev Users (matched to auth.ts DEV_USERS) ────────────────────
   const cpSsmith = await prisma.user.upsert({
     where: { email: "peter.smith@army.mil" },
     update: {},
@@ -95,6 +95,23 @@ async function main() {
     },
   });
 
+  const majLee = await prisma.user.upsert({
+    where: { email: "jordan.lee@army.mil" },
+    update: {},
+    create: {
+      id: "dev-maj-lee",
+      supabaseId: "dev-maj-lee",
+      email: "jordan.lee@army.mil",
+      firstName: "Jordan",
+      lastName: "Lee",
+      rank: "MAJ",
+      category: "OFFICER",
+      mos: "11A",
+      roles: ["SOLDIER", "SENIOR_RATER"],
+      unitId: unit.id,
+    },
+  });
+
   // ── Rating Chains (3 dev chains for testing) ──────────────────
   // Chain 1: SGT Davis (rated) → SSG Johnson (rater) → SFC Williams (sr)
   const davisChain = await prisma.ratingChain.upsert({
@@ -134,6 +151,8 @@ async function main() {
       effectiveDate: new Date("2024-06-01"),
     },
   });
+
+  void majLee;
 
   // ── Support Form — SGT Davis ───────────────────────────────────
   const davisSupportForm = await prisma.supportForm.upsert({
