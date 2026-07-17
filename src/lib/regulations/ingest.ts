@@ -16,11 +16,9 @@ import path from "path";
 import { OpenAI } from "openai";
 import { PrismaClient } from "@prisma/client";
 
-// pdf-parse v1 (CJS); use createRequire so tsx doesn't rewrite the import
-import { createRequire } from "module";
-const _require = createRequire(import.meta.url);
+// pdf-parse v1 is CommonJS, matching this project's compiler configuration.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const pdfParse = _require("pdf-parse") as (
+const pdfParse = require("pdf-parse") as (
   buffer: Buffer,
   options?: Record<string, unknown>,
 ) => Promise<{ text: string; numpages: number }>;
@@ -185,7 +183,12 @@ async function main() {
   }
 
   const filePath = args[fileIdx + 1];
-  const docTitle = docIdx !== -1 ? args[docIdx + 1] : path.basename(filePath, ".pdf");
+  if (!filePath) {
+    console.error("Usage: ingest.ts --file <path> [--doc <title>]");
+    return;
+  }
+  const suppliedDocTitle = docIdx !== -1 ? args[docIdx + 1] : undefined;
+  const docTitle = suppliedDocTitle?.trim() || path.basename(filePath, ".pdf");
 
   if (!fs.existsSync(filePath)) {
     console.error(`File not found: ${filePath}`);
@@ -217,9 +220,11 @@ async function main() {
 
     const embeddings = await embedBatch(texts);
 
-    await Promise.all(
-      batch.map((chunk, j) => upsertChunk(chunk, embeddings[j])),
-    );
+    await Promise.all(batch.map((chunk, index) => {
+      const embedding = embeddings[index];
+      if (!embedding) throw new Error(`Embedding response omitted item ${index} in batch.`);
+      return upsertChunk(chunk, embedding);
+    }));
 
     done += batch.length;
     process.stdout.write(`\r⚡  Indexed: ${done}/${chunks.length}`);
