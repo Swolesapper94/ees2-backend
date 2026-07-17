@@ -113,7 +113,7 @@ ees2-frontend/
 
 ## 4. Data model (the important entities)
 
-The schema has **22 models**. These are the ones that carry the system:
+The Prisma schema currently defines **36 models** and **50 enums**. This section is the architectural map of the important entities; [14 - Supabase PostgreSQL Database Schema Reference](./14-database-schema-reference.md) is the authoritative field-by-field reference for every table, relationship, index, and raw pgvector column.
 
 ### People & structure
 - **`User`** — a service member. Holds rank, category, MOS, roles (`SOLDIER`, `RATER`, `SENIOR_RATER`, legacy `REVIEWER`, `COMMANDER`, `ADMIN`, plus unit-leadership roles), profile picture, unit. The `REVIEWER` enum rename to `SUPPLEMENTARY_REVIEWER` is staged for compatibility with existing stored data.

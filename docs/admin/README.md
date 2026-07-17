@@ -17,6 +17,18 @@ It is built around one core belief: **the evaluation should be a byproduct of a 
 
 Each document stands alone. Start with whichever matches your role, then branch out.
 
+### Documentation authority
+
+Use the documents below according to their purpose. This matters when preparing a deliverable: some files describe the **current contract**, while others preserve historical evidence that must not be presented as the current system state.
+
+| Need | Authoritative source | Supporting source |
+| --- | --- | --- |
+| Current database tables, fields, enums, relationships, indexes, and migration caveats | [14 - Database Schema Reference](./14-database-schema-reference.md) | `prisma/schema.prisma` and reviewed Prisma migrations |
+| Current API, data flow, authorization, and frontend-backend contract | [08 - Data Flow and API Contract](./08-data-flow-and-api-contract.md) | Current backend routes/policies and frontend API client |
+| Regulatory remediation and active-vs-quarantined record posture | [10 - Regulatory Remediation Status](./10-regulatory-remediation-status.md) | [09 - Permission and Assignment Audit](./09-permission-and-assignment-audit.md) for historical evidence only |
+| Manual workflow execution and customer sign-off | [FLOWS - Workflow Test Runbook](./FLOWS.md) | [12 - Customer Manual Acceptance Test Plan](./12-customer-manual-acceptance-test-plan.md) |
+| Product story, delivery state, security posture, and terms | Documents 01 through 07 | Current code and the sources above when a claim needs technical proof |
+
 | # | Document | Best for | What it answers |
 | --- | --- | --- | --- |
 | 01 | [Executive Summary](./01-executive-summary.md) | Everyone — read first | Why does this exist? What problem does it solve? What's the vision? |
@@ -27,11 +39,12 @@ Each document stands alone. Start with whichever matches your role, then branch 
 | 06 | [Roadmap & Status](./06-roadmap-and-status.md) | Sponsors, PMs | What's built, what's next, and when? |
 | 07 | [Glossary](./07-glossary.md) | Everyone | What do all these Army and technical terms mean? |
 | 08 | [Data Flow & API Contract](./08-data-flow-and-api-contract.md) | Engineers, integration teams | Which API contracts, lifecycle states, and data relationships are authoritative? |
-| 09 | [Permission & Assignment Audit](./09-permission-and-assignment-audit.md) | Program leadership, administrators | What legacy data was remediated and what remains before a compliant demo dataset exists? |
+| 09 | [Permission & Assignment Audit](./09-permission-and-assignment-audit.md) | Program leadership, administrators | Historical pre-remediation evidence; do not use as the current permission contract. |
 | 10 | [Regulatory Remediation Status](./10-regulatory-remediation-status.md) | Program leadership, administrators | What changed on 2026-07-11, what is quarantined, and what remains before activating a compliant demo workflow? |
 | 11 | [Workflow Test Runbook](./FLOWS.md) | Testers, administrators, engineering | How to seed and execute the rated-soldier, rater, senior-rater, supplementary-reviewer, and OER test paths. |
 | 12 | [Customer Manual Acceptance Test Plan](./12-customer-manual-acceptance-test-plan.md) | Customer evaluators, test leads | Checkbox-driven persona walkthrough, real support-form ingestion validation, and results handoff template. |
 | 13 | [Access and Assistance Implementation Note](./13-access-and-assistance-implementation-note.md) | Security reviewers, administrators | Legacy delegate inventory, compatibility migration, and scoped assistance design. |
+| 14 | [Supabase PostgreSQL Database Schema Reference](./14-database-schema-reference.md) | Database administrators, engineers, security reviewers | What tables, columns, enums, relationships, indexes, vector fields, and Supabase boundaries make up the database schema? |
 
 ---
 
@@ -49,4 +62,4 @@ The Army's evaluation process is high-stakes (it drives promotions, assignments,
 
 ---
 
-*Documentation maintained by the EES 2.0 team. Last substantive update: 2026-07-11 (versioned rating assignments, immutable evaluation snapshots, support-form lifecycle controls, reviewer restrictions, and legacy-record quarantine).*
+*Documentation maintained by the EES 2.0 team. Last substantive update: 2026-07-17 (knowledge-base cleanup: restored remediation and acceptance-plan references, added source-of-truth hierarchy, and reconciled database documentation with the current Prisma schema).*

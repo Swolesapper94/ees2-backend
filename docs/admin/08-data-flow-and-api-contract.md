@@ -2,7 +2,11 @@
 
 ## Purpose
 
-This document identifies what the database stores, which backend routes read or change it, and how the dashboard receives the resulting data. It reflects the code in `prisma/schema.prisma`, `src/routes`, and `ees2-frontend/src` as of 2026-07-11.
+This document identifies what the database stores, which backend routes read or change it, and how the dashboard receives the resulting data. It reflects the code in `prisma/schema.prisma`, `src/routes`, and `ees2-frontend/src` as of 2026-07-17.
+
+### Authority boundary
+
+This is the **current application/API contract**, not a field-by-field database catalog. For exact tables, columns, enum values, foreign keys, indexes, and the current migration-state caveat, use [14 - Supabase PostgreSQL Database Schema Reference](./14-database-schema-reference.md). For current remediation posture and the status of legacy/quarantined records, use [10 - Regulatory Remediation Status](./10-regulatory-remediation-status.md). The pre-remediation findings in [09 - Permission and Assignment Audit](./09-permission-and-assignment-audit.md) are historical evidence only.
 
 ## Identity and Session Flow
 

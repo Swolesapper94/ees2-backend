@@ -1,5 +1,7 @@
 # 13 - Access and Assistance Implementation Note
 
+> **Scope:** This is a focused migration/implementation companion for scoped assistance. The current API and authorization contract lives in [08 - Data Flow and API Contract](./08-data-flow-and-api-contract.md); current remediation posture lives in [10 - Regulatory Remediation Status](./10-regulatory-remediation-status.md); and the persisted model is documented in [14 - Database Schema Reference](./14-database-schema-reference.md). It intentionally does not duplicate those documents.
+
 ## Existing Implementation Retained
 
 The legacy `Delegate` model remains mapped to the `delegates` table and its IDs remain unchanged. The existing `/api/delegates` router, dashboard `DelegatedAccessSection`, notification category, and legacy delegate audit events are retained during the migration.

@@ -126,6 +126,7 @@ Expected result: creation succeeds, the support form is consumed, and the evalua
 - A rater may record a counseling discussion and may carry an approved incomplete goal into the successor support form. Carry-forward creates a new goal with an explicit source link; it never mutates the prior period's record.
 - Target-date reminders run hourly. Configure the approaching and overdue thresholds with `GOAL_REMINDER_APPROACHING_DAYS` and `GOAL_REMINDER_OVERDUE_DAYS`.
 - Documentation signals flag process patterns such as sparse artifacts or late clusters. They are informational only and never calculate, change, or recommend a rating. Only the assigned rater may add a context note explaining circumstances such as leave or reassignment.
+- To exercise the edit/revision and carry-forward paths with disposable fixtures, run `npm run seed:goal-additions`, then run `npx playwright test tests/e2e/13-goal-tracking.spec.ts` from the frontend. Finish with `npm run cleanup:goal-additions`; cleanup removes all temporary goals and the temporary successor form while retaining immutable audit evidence.
 
 ### 2. Negative gate: attempt to initiate without a finalized support form
 

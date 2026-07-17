@@ -182,8 +182,17 @@ export async function requireAuth(
     return;
   }
 
-  // Production: verify real Supabase token
-  const authUser = await verifySupabaseToken(token);
+  // Verify real Supabase tokens when a request is not a configured dev identity.
+  // Verification may be unavailable in local development without an admin key;
+  // an unrecognized bearer token must still fail as authentication, not crash
+  // the request process.
+  let authUser;
+  try {
+    authUser = await verifySupabaseToken(token);
+  } catch {
+    res.status(401).json({ error: "Invalid or expired token" });
+    return;
+  }
   if (!authUser) {
     res.status(401).json({ error: "Invalid or expired token" });
     return;
