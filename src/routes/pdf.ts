@@ -12,7 +12,7 @@ export const pdfRouter = Router();
 // Workflow states that represent a genuinely finished evaluation (MVP audit
 // 5.15) — anything else gets a watermarked "DRAFT" export instead of a
 // clean, official-looking PDF.
-const FINAL_STATUSES = new Set(["COMPLETE", "SUBMITTED", "ACCEPTED"]);
+const FINAL_STATUSES = new Set(["PENDING_FINAL_FORM_REVIEW", "COMPLETE", "SUBMITTED", "ACCEPTED"]);
 
 function fmt(d: Date): string {
   return d.toISOString().slice(0, 10).replace(/-/g, "");

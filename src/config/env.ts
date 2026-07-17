@@ -30,6 +30,13 @@ export const env = {
 
   openaiApiKey: required("OPENAI_API_KEY"),
   openaiModel: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+
+  goalReminderDays: Number(process.env.GOAL_REMINDER_DAYS ?? 14),
+  documentationLowDensityPerMonth: Number(process.env.DOCUMENTATION_LOW_DENSITY_PER_MONTH ?? 0.5),
+  documentationHighDensityPerMonth: Number(process.env.DOCUMENTATION_HIGH_DENSITY_PER_MONTH ?? 1.5),
+  lateClusterPercent: Number(process.env.LATE_CLUSTER_PERCENT ?? 50),
+  lateClusterDays: Number(process.env.LATE_CLUSTER_DAYS ?? 14),
+  lowArtifactDensityPercent: Number(process.env.LOW_ARTIFACT_DENSITY_PERCENT ?? 70),
 } as const;
 
 export const isProd = env.nodeEnv === "production";

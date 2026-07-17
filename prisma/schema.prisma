@@ -132,6 +132,39 @@ enum RatingAssignmentStatus {
   QUARANTINED
 }
 
+enum RatingSchemeStatus {
+  DRAFT
+  IN_VALIDATION
+  PENDING_APPROVAL
+  RETURNED
+  APPROVED
+  PUBLISHED
+  SUPERSEDED
+  CANCELLED
+}
+
+enum RatingSchemeDelegationStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+  SUSPENDED
+}
+
+enum RatingSchemeDelegationPermission {
+  CREATE_DRAFT
+  EDIT_DRAFT
+  IMPORT_ASSIGNMENTS
+  RESOLVE_VALIDATION
+  SUBMIT_FOR_APPROVAL
+  VIEW_AUDIT
+}
+
+enum BattalionCommandAssignmentStatus {
+  ACTIVE
+  ENDED
+  SUSPENDED
+}
+
 enum EvalFormType {
   // ── NCOERs — Full builder in MVP ──────────────────────────────────
   NCOER_9_1 // DA 2166-9-1 — SGT (E5)            Binary scale
@@ -177,6 +210,7 @@ enum EvalStatus {
   PENDING_SENIOR_RATER // Rater done, SR working their section
   PENDING_SOLDIER_ACK // Awaiting rated soldier acknowledgment
   PENDING_SUPPLEMENTARY_REVIEW // Conditional — rater is 1LT only
+  PENDING_FINAL_FORM_REVIEW // Rated Soldier verifies the populated PDF before completion
   COMPLETE // All required signatures collected
   SUBMITTED // Forwarded to HRC for official processing
   ACCEPTED // Terminal success — in official record
@@ -203,6 +237,39 @@ enum SectionKey {
 enum EntryType {
   OBJECTIVE // "Indicate major performance objectives"
   ACCOMPLISHMENT // "List significant contributions and accomplishments"
+}
+
+enum GoalCategory {
+  ROUTINE
+  PROBLEM_SOLVING
+  INNOVATIVE
+  PERSONAL_DEVELOPMENT
+  OTHER
+}
+
+enum GoalApprovalStatus {
+  DRAFT
+  PENDING_RATER_REVIEW
+  APPROVED
+  NEEDS_REVISION
+}
+
+enum GoalProgress {
+  NOT_STARTED
+  IN_PROGRESS
+  ACHIEVED
+  PARTIALLY_ACHIEVED
+  NOT_ACHIEVED
+}
+
+enum FinalReviewOutcome {
+  CONFIRMED
+  DISPUTED
+}
+
+enum DisputeCategory {
+  RATER_CONTENT
+  SENIOR_RATER_CONTENT
 }
 
 // ── RATER CONFIRMATION ────────────────────────────────────────────
@@ -318,6 +385,10 @@ model Unit {
   children  Unit[]   @relation("UnitHierarchy")
   users     User[]
   ratingSchemeAssignments RatingSchemeAssignment[]
+  ratingSchemes RatingScheme[] @relation("RatingSchemeUnit")
+  approvalRatingSchemes RatingScheme[] @relation("RatingSchemeApprovalBattalion")
+  ratingSchemeDelegations RatingSchemeDelegation[]
+  commandAssignments BattalionCommandAssignment[]
   accessGrants Delegate[]
   administrativeScopes AdministrativeScope[]
   createdAt DateTime @default(now())
@@ -381,6 +452,16 @@ model User {
   createdAssignments   RatingSchemeAssignment[] @relation("AssignmentCreatedBy")
   approvedAssignments  RatingSchemeAssignment[] @relation("AssignmentApprovedBy")
   publishedAssignments RatingSchemeAssignment[] @relation("AssignmentPublishedBy")
+  createdRatingSchemes RatingScheme[] @relation("RatingSchemeCreatedBy")
+  submittedRatingSchemes RatingScheme[] @relation("RatingSchemeSubmittedBy")
+  approvedRatingSchemes RatingScheme[] @relation("RatingSchemeApprovedBy")
+  publishedRatingSchemes RatingScheme[] @relation("RatingSchemePublishedBy")
+  returnedRatingSchemes RatingScheme[] @relation("RatingSchemeReturnedBy")
+  commandedBattalions BattalionCommandAssignment[] @relation("BattalionCommander")
+  grantedRatingSchemeDelegations RatingSchemeDelegation[] @relation("RatingSchemeDelegationCommander")
+  receivedRatingSchemeDelegations RatingSchemeDelegation[] @relation("RatingSchemeDelegationDelegate")
+  grantedRatingSchemeDelegationsBy RatingSchemeDelegation[] @relation("RatingSchemeDelegationGrantedBy")
+  revokedRatingSchemeDelegations RatingSchemeDelegation[] @relation("RatingSchemeDelegationRevokedBy")
   supportEntriesCreated SupportFormEntry[] @relation("SupportEntryCreator")
   supportEntriesAssisted SupportFormEntry[] @relation("SupportEntrySubject")
   identitySourceRecord IdentitySourceRecord?
@@ -496,6 +577,7 @@ enum EvalCategory {
 // this model and the immutable evaluation snapshot below.
 model RatingSchemeAssignment {
   id                       String                 @id @default(cuid())
+  ratingSchemeId           String?
   ratedSoldierId           String
   raterId                  String
   intermediateRaterId      String?
@@ -526,6 +608,7 @@ model RatingSchemeAssignment {
   createdBy             User? @relation("AssignmentCreatedBy", fields: [createdByUserId], references: [id])
   approvedBy            User? @relation("AssignmentApprovedBy", fields: [approvedByUserId], references: [id])
   publishedBy           User? @relation("AssignmentPublishedBy", fields: [publishedByUserId], references: [id])
+  ratingScheme          RatingScheme? @relation(fields: [ratingSchemeId], references: [id], onDelete: SetNull)
   unit                  Unit? @relation(fields: [unitId], references: [id])
   supersedes            RatingSchemeAssignment? @relation("AssignmentSupersession", fields: [supersedesAssignmentId], references: [id])
   replacements          RatingSchemeAssignment[] @relation("AssignmentSupersession")
@@ -535,7 +618,93 @@ model RatingSchemeAssignment {
 
   @@index([ratedSoldierId, status, effectiveFrom])
   @@index([status, effectiveFrom])
+  @@index([ratingSchemeId, effectiveFrom])
   @@map("rating_scheme_assignments")
+}
+
+model BattalionCommandAssignment {
+  id          String                            @id @default(cuid())
+  battalionId String
+  commanderUserId String
+  status      BattalionCommandAssignmentStatus  @default(ACTIVE)
+  effectiveFrom DateTime
+  effectiveTo DateTime?
+  battalion   Unit                              @relation(fields: [battalionId], references: [id], onDelete: Cascade)
+  commander   User                              @relation("BattalionCommander", fields: [commanderUserId], references: [id], onDelete: Cascade)
+  createdAt   DateTime                          @default(now())
+  updatedAt   DateTime                          @updatedAt
+
+  @@index([battalionId, status, effectiveFrom])
+  @@index([commanderUserId, status])
+  @@map("battalion_command_assignments")
+}
+
+model RatingScheme {
+  id          String             @id @default(cuid())
+  unitId      String
+  battalionId String
+  version     Int
+  status      RatingSchemeStatus @default(DRAFT)
+  effectiveFrom DateTime
+  effectiveTo DateTime?
+  createdByUserId String
+  submittedByUserId String?
+  submittedAt DateTime?
+  approvedByUserId String?
+  approvedAt DateTime?
+  approvalAuthorityPositionId String?
+  approvalComments String?
+  publishedByUserId String?
+  publishedAt DateTime?
+  returnedByUserId String?
+  returnedAt DateTime?
+  returnComments String?
+  changeReason String?
+  previousSchemeId String?
+  versionHash String?
+  unit        Unit               @relation("RatingSchemeUnit", fields: [unitId], references: [id], onDelete: Cascade)
+  battalion   Unit               @relation("RatingSchemeApprovalBattalion", fields: [battalionId], references: [id], onDelete: Cascade)
+  createdBy   User               @relation("RatingSchemeCreatedBy", fields: [createdByUserId], references: [id])
+  submittedBy User?              @relation("RatingSchemeSubmittedBy", fields: [submittedByUserId], references: [id])
+  approvedBy User?               @relation("RatingSchemeApprovedBy", fields: [approvedByUserId], references: [id])
+  publishedBy User?              @relation("RatingSchemePublishedBy", fields: [publishedByUserId], references: [id])
+  returnedBy User?               @relation("RatingSchemeReturnedBy", fields: [returnedByUserId], references: [id])
+  previousScheme RatingScheme?   @relation("RatingSchemeSupersession", fields: [previousSchemeId], references: [id])
+  replacements RatingScheme[]    @relation("RatingSchemeSupersession")
+  assignments RatingSchemeAssignment[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@unique([unitId, version])
+  @@index([unitId, status, effectiveFrom])
+  @@index([battalionId, status, effectiveFrom])
+  @@map("rating_schemes")
+}
+
+model RatingSchemeDelegation {
+  id          String                         @id @default(cuid())
+  battalionId String
+  commanderUserId String
+  delegateUserId String
+  effectiveFrom DateTime
+  effectiveTo DateTime?
+  status      RatingSchemeDelegationStatus  @default(ACTIVE)
+  permissions RatingSchemeDelegationPermission[]
+  grantedByUserId String
+  grantedAt   DateTime                      @default(now())
+  revokedByUserId String?
+  revokedAt   DateTime?
+  battalion   Unit                           @relation(fields: [battalionId], references: [id], onDelete: Cascade)
+  commander   User                           @relation("RatingSchemeDelegationCommander", fields: [commanderUserId], references: [id], onDelete: Cascade)
+  delegate    User                           @relation("RatingSchemeDelegationDelegate", fields: [delegateUserId], references: [id], onDelete: Cascade)
+  grantedBy   User                           @relation("RatingSchemeDelegationGrantedBy", fields: [grantedByUserId], references: [id])
+  revokedBy   User?                          @relation("RatingSchemeDelegationRevokedBy", fields: [revokedByUserId], references: [id])
+  createdAt   DateTime                       @default(now())
+  updatedAt   DateTime                       @updatedAt
+
+  @@index([battalionId, delegateUserId, status])
+  @@index([commanderUserId, status])
+  @@map("rating_scheme_delegations")
 }
 
 // Captures the exact officials and grades governing an evaluation at creation.
@@ -606,6 +775,7 @@ model CounselingSession {
   notes           String?
   raterInitials   String?
   soldierInitials String?
+  goalDiscussions GoalCounselingDiscussion[]
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -650,6 +820,9 @@ model SupportForm {
   ssdNcoesMet       Boolean?
   // Part IV: Soldier's own goals and expectations for the period
   soldierGoals      String?
+  raterContextNote  String?
+  raterContextNoteSetById String?
+  raterContextNoteSetAt DateTime?
   isActive          Boolean            @default(true)
   status            SupportFormStatus  @default(DRAFT)
   disposition       RecordDisposition  @default(ACTIVE)
@@ -664,6 +837,7 @@ model SupportForm {
   // check. Presence of this timestamp is what unlocks eval initiation.
   completedAt       DateTime?
   entries           SupportFormEntry[]
+  goals             Goal[]
   evaluations       Evaluation[]
   accessGrants      Delegate[]
   createdAt         DateTime           @default(now())
@@ -709,11 +883,79 @@ model SupportFormEntry {
   clarificationNote  String? // Short note when status = NEEDS_CLARIFICATION
 
   artifacts SupportFormEntryArtifact[]
+  goalLinks GoalEntryLink[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("support_form_entries")
+}
+
+model Goal {
+  id                   String             @id @default(cuid())
+  supportFormId        String
+  supportForm          SupportForm        @relation(fields: [supportFormId], references: [id], onDelete: Cascade)
+  sectionKey           SectionKey
+  title                String
+  description          String
+  category             GoalCategory?
+  targetDate           DateTime?
+  createdById          String
+  createdByRole        EntryAuthorRole
+  lastEditedById       String?
+  lastEditedAt         DateTime?
+  approvalStatus       GoalApprovalStatus @default(DRAFT)
+  approvedByRaterId    String?
+  approvedAt           DateTime?
+  revisionNote         String?
+  establishedAtCounselingSessionId String?
+  soldierAssessment    GoalProgress?
+  soldierAssessmentNote String?
+  soldierAssessmentAt  DateTime?
+  raterAssessment      GoalProgress?
+  raterAssessmentById  String?
+  raterAssessmentNote  String?
+  raterAssessmentAt    DateTime?
+  carriedForwardFromGoalId String?
+  carriedForwardFromGoal Goal? @relation("GoalCarryForward", fields: [carriedForwardFromGoalId], references: [id])
+  carriedForwardGoals  Goal[]  @relation("GoalCarryForward")
+  linkedEntries        GoalEntryLink[]
+  counselingDiscussions GoalCounselingDiscussion[]
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  @@index([supportFormId, sectionKey])
+  @@map("goals")
+}
+
+model GoalEntryLink {
+  id                 String           @id @default(cuid())
+  goalId             String
+  goal               Goal             @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  supportFormEntryId String
+  supportFormEntry   SupportFormEntry @relation(fields: [supportFormEntryId], references: [id], onDelete: Cascade)
+  linkedById         String
+  linkedByRole       EntryAuthorRole
+  linkedAt           DateTime         @default(now())
+
+  @@unique([goalId, supportFormEntryId])
+  @@map("goal_entry_links")
+}
+
+model GoalCounselingDiscussion {
+  id                  String            @id @default(cuid())
+  goalId              String
+  goal                Goal              @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  counselingSessionId String
+  counselingSession   CounselingSession @relation(fields: [counselingSessionId], references: [id], onDelete: Cascade)
+  note                String?
+  percentAchieved     Int?
+  setById             String
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@unique([goalId, counselingSessionId])
+  @@map("goal_counseling_discussions")
 }
 
 // Proof attached to a SupportFormEntry — see ArtifactType above.
@@ -761,6 +1003,7 @@ model Evaluation {
   supportFormId               String?
   supportForm                 SupportForm? @relation(fields: [supportFormId], references: [id])
   ratingSnapshot              EvaluationRatingSnapshot?
+  finalFormReviews            FinalFormReview[]
   formType                    EvalFormType
   status                      EvalStatus   @default(DRAFT)
   disposition                 RecordDisposition @default(ACTIVE)
@@ -911,6 +1154,22 @@ model SeniorRaterProfile {
   lastUpdated DateTime @default(now())
 
   @@map("senior_rater_profiles")
+}
+
+model FinalFormReview {
+  id              String             @id @default(cuid())
+  evaluationId    String
+  evaluation      Evaluation         @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  reviewedBy      String
+  outcome         FinalReviewOutcome
+  contentHash     String
+  disputeCategory DisputeCategory?
+  disputeReason   String?
+  reviewedAt      DateTime           @default(now())
+  supersededAt    DateTime?
+
+  @@index([evaluationId, reviewedAt])
+  @@map("final_form_reviews")
 }
 
 // ─────────────────────────────────────────────────────────────────

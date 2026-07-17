@@ -68,7 +68,7 @@ export async function checkCompleteness(supportFormId: string): Promise<Complete
   const form = await prisma.supportForm.findUnique({
     where: { id: supportFormId },
     include: {
-      entries: { where: { entryType: "OBJECTIVE" } },
+      goals: { select: { sectionKey: true } },
     },
   });
 
@@ -95,7 +95,7 @@ export async function checkCompleteness(supportFormId: string): Promise<Complete
   const goalCountsByDimension = Object.fromEntries(
     LEADERSHIP_DIMENSIONS.map((dim) => [
       dim,
-      form.entries.filter((e) => e.section === dim).length,
+      form.goals.filter((goal) => goal.sectionKey === dim).length,
     ]),
   ) as Record<LeadershipDimension, number>;
 

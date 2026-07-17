@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This is the authoritative manual test guide for the regulated evaluation workflow. It reflects the implementation as of 2026-07-11, including versioned assignments, immutable evaluation snapshots, support-form consumption, ordered signatures, and supplementary review.
+This is the authoritative manual test guide for the regulated evaluation workflow. It reflects the implementation including versioned assignments, immutable evaluation snapshots, standalone support-form goals, ordered signatures, supplementary review, and final-form confirmation before submission.
 
 For a customer-facing, checkbox-driven walkthrough and results template, use [12 - Customer Manual Acceptance Test Plan](./12-customer-manual-acceptance-test-plan.md).
 
@@ -95,24 +95,37 @@ flowchart LR
   D --> E[Rated Soldier acknowledges and signs]
   E --> F{Supplementary review required?}
   F -->|Yes| G[Supplementary reviewer signs]
-  F -->|No| H[Complete]
+  F -->|No| H[Pending final form review]
   G --> H
-  H --> I[Submit to HDQA]
+  H --> I[Rated Soldier reviews populated PDF]
+  I --> J{Confirms exact rendered form?}
+  J -->|Yes| K[Complete]
+  J -->|Flags rater or SR content| C
+  K --> L[Submit to HDQA]
 ```
 
-The API rejects an out-of-sequence signature with `SIGNATURE_OUT_OF_SEQUENCE`.
+The API rejects an out-of-sequence signature with `SIGNATURE_OUT_OF_SEQUENCE`. After the last required signature, the evaluation enters `PENDING_FINAL_FORM_REVIEW`; only the rated Soldier can confirm the current hash-bound populated PDF. Submission is blocked with `SUBMIT_BLOCKED_PENDING_FINAL_REVIEW` until confirmation succeeds.
 
 ### 1. Rated Soldier: support form and initiation
 
 1. Sign in as SGT Davis.
 2. Open `/support-form` and confirm the finalized Davis form and its entries are visible.
 3. Confirm the workspace identifies the current Davis assignment and shows **Start form** only when there is no usable form for an effective assignment.
-4. As Davis, log an additional accomplishment or objective with optional proof. As SSG Johnson, open the same form and confirm the entry screen permits an objective only; accomplishments and artifact attestations remain Soldier-owned.
-5. Open `/evaluations/new?mode=soldier`.
-6. Confirm the selector shows only Davis's current assignment with SSG Johnson as rater and SFC Williams as senior rater; enter a rating period and submit.
-7. Verify the evaluation opens and the rater can see it.
+4. As Davis, open **Goals** to draft and submit a Soldier-owned goal for rater review. Goals replace new objective entries; legacy objective entries are preserved only as historical evidence.
+5. As Davis, log an additional accomplishment with optional proof. Link it to one or more goals when applicable. SSG Johnson may review, approve, assess, and link accomplishments, but cannot author the Soldier's goals.
+6. Open `/evaluations/new?mode=soldier`.
+7. Confirm the selector shows only Davis's current assignment with SSG Johnson as rater and SFC Williams as senior rater; enter a rating period and submit.
+8. Verify the evaluation opens and the rater can see it.
 
 Expected result: creation succeeds, the support form is consumed, and the evaluation has an immutable rating snapshot.
+
+### Goal workflow, reminders, and documentation context
+
+- A goal is Soldier-authored, then submitted for its assigned rater to approve or return for revision. The Soldier records progress; the rater records a separate assessment. The senior rater has read-only visibility.
+- Accomplishments remain separate evidence records and may link to multiple approved goals. New `OBJECTIVE` support-form entries are rejected; preserved legacy objective entries remain historical evidence only.
+- A rater may record a counseling discussion and may carry an approved incomplete goal into the successor support form. Carry-forward creates a new goal with an explicit source link; it never mutates the prior period's record.
+- Target-date reminders run hourly. Configure the approaching and overdue thresholds with `GOAL_REMINDER_APPROACHING_DAYS` and `GOAL_REMINDER_OVERDUE_DAYS`.
+- Documentation signals flag process patterns such as sparse artifacts or late clusters. They are informational only and never calculate, change, or recommend a rating. Only the assigned rater may add a context note explaining circumstances such as leave or reassignment.
 
 ### 2. Negative gate: attempt to initiate without a finalized support form
 
@@ -148,7 +161,7 @@ Expected result: status becomes `PENDING_SOLDIER_ACK`. The API rejects senior-ra
 1. Sign in again as SGT Davis.
 2. Review the completed report and sign as `SOLDIER`.
 
-Expected result: the Davis evaluation becomes `PENDING_SUPPLEMENTARY_REVIEW` because its snapshot requires review. For an evaluation without review requirement, it becomes `COMPLETE` instead.
+Expected result: the Davis evaluation becomes `PENDING_SUPPLEMENTARY_REVIEW` because its snapshot requires review. For an evaluation without review requirement, it becomes `PENDING_FINAL_FORM_REVIEW`.
 
 ### 6. Supplementary reviewer: final review
 
@@ -157,9 +170,16 @@ Expected result: the Davis evaluation becomes `PENDING_SUPPLEMENTARY_REVIEW` bec
 3. Confirm that the report is read-only for rating content.
 4. Sign as `REVIEWER`.
 
-Expected result: status becomes `COMPLETE`. The reviewer cannot generate bullets, edit rater/senior-rater content, or confirm support-form entries.
+Expected result: status becomes `PENDING_FINAL_FORM_REVIEW`. The reviewer cannot generate bullets, edit rater/senior-rater content, or confirm support-form entries.
 
-### 7. Submission and terminal-state checks
+### 7. Rated Soldier: final-form confirmation
+
+1. Sign in as SGT Davis and open `/evaluations/<evaluation-id>/final-review`.
+2. Review the rendered populated PDF and confirm the exact current form.
+
+Expected result: confirmation records the current canonical form hash and changes the status to `COMPLETE`. A changed form invalidates the confirmation; the Soldier may dispute rater or senior-rater content, which returns the affected content to its owner for correction and re-signature.
+
+### 8. Submission and terminal-state checks
 
 1. From an authorized workflow persona, run the consistency check.
 2. Confirm that there are no blocking errors.

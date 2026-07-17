@@ -111,7 +111,7 @@ const DEV_USERS: Record<string, User> = {
     lastName: "Reed",
     rank: "LTC",
     mos: "11A",
-    roles: ["SOLDIER", "REVIEWER"],
+    roles: ["SOLDIER", "REVIEWER", "COMMANDER"],
     unitId: "dev-unit-505",
     createdAt: new Date("2024-01-01"),
     updatedAt: new Date("2024-01-01"),

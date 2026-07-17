@@ -68,7 +68,7 @@ export async function recomputeEvalStatus(
   } else if (evaluation.requiresSupplementaryReview && !isSigned("REVIEWER")) {
     next = "PENDING_SUPPLEMENTARY_REVIEW";
   } else {
-    next = "COMPLETE";
+    next = "PENDING_FINAL_FORM_REVIEW";
   }
 
   if (next !== evaluation.status) {

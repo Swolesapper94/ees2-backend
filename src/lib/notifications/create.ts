@@ -154,6 +154,17 @@ export const Notifications = {
     });
   },
 
+  goalTargetApproaching(userId: string, supportFormId: string, goalId: string, goalTitle: string, targetDate: Date) {
+    return notify({
+      userId,
+      category: "MILESTONE",
+      title: "Goal Target Date Approaching",
+      message: `Review ${goalTitle} with the rated Soldier before ${targetDate.toLocaleDateString()}.`,
+      actionUrl: `/support-form/goals?formId=${supportFormId}&goalId=${goalId}`,
+      actionLabel: "Review Goal",
+    });
+  },
+
   /** New comment posted on a section. */
   newComment(
     userId: string,

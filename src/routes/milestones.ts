@@ -4,8 +4,20 @@ import { prisma } from "@/lib/prisma";
 import { asyncHandler, HttpError } from "@/middleware/error";
 import { requireAuth } from "@/middleware/auth";
 import { requireEvalChainRole } from "@/lib/utils/chain-auth";
+import type { MilestoneType } from "@prisma/client";
 
 export const milestonesRouter = Router();
+
+const MILESTONE_OWNER: Record<MilestoneType, "RATER" | "SENIOR_RATER" | "SOLDIER"> = {
+  INITIAL_COUNSELING_DUE: "RATER",
+  QUARTERLY_COUNSELING_1: "RATER",
+  QUARTERLY_COUNSELING_2: "RATER",
+  QUARTERLY_COUNSELING_3: "RATER",
+  RATER_SECTION_DUE: "RATER",
+  SENIOR_RATER_DUE: "SENIOR_RATER",
+  SOLDIER_ACK_DUE: "SOLDIER",
+  EVAL_SUBMISSION_DUE: "RATER",
+};
 
 // GET /api/milestones?evaluationId=xxx
 milestonesRouter.get(
@@ -33,14 +45,7 @@ milestonesRouter.patch(
     });
     if (!milestone) throw new HttpError(404, "Milestone not found");
 
-    // Only the rating chain's rater/senior rater/reviewer (or an ADMIN) may
-    // mark a milestone complete — previously any authenticated user could
-    // complete any milestone on any evaluation (MVP audit 5.11).
-    await requireEvalChainRole(milestone.evaluationId, req.user, [
-      "RATER",
-      "SENIOR_RATER",
-      "REVIEWER",
-    ]);
+    await requireEvalChainRole(milestone.evaluationId, req.user, [MILESTONE_OWNER[milestone.type]]);
 
     const updated = await prisma.evalMilestone.update({
       where: { id: req.params.id },
@@ -79,11 +84,7 @@ milestonesRouter.patch(
     });
     if (!milestone) throw new HttpError(404, "Milestone not found");
 
-    await requireEvalChainRole(milestone.evaluationId, req.user, [
-      "RATER",
-      "SENIOR_RATER",
-      "REVIEWER",
-    ]);
+    await requireEvalChainRole(milestone.evaluationId, req.user, [MILESTONE_OWNER[milestone.type]]);
 
     const updated = await prisma.evalMilestone.update({
       where: { id: req.params.id },

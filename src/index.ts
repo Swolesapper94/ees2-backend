@@ -2,6 +2,7 @@ import { createApp } from "@/app";
 import { env } from "@/config/env";
 import { runAccessGrantLifecycleSweep } from "@/lib/access-assistance/scheduler";
 import { runMilestoneNudgeSweep } from "@/lib/milestones/scheduler";
+import { runGoalTargetReminderSweep } from "@/lib/goals/scheduler";
 
 const app = createApp();
 
@@ -45,3 +46,14 @@ function sweepAccessGrants() {
 
 sweepAccessGrants();
 setInterval(sweepAccessGrants, MILESTONE_SWEEP_INTERVAL_MS);
+
+function sweepGoalTargets() {
+  runGoalTargetReminderSweep()
+    .then(({ notified }) => {
+      if (notified > 0) console.log(`[goal-target-sweep] notified ${notified}`);
+    })
+    .catch((err) => console.error("[goal-target-sweep] failed", err));
+}
+
+sweepGoalTargets();
+setInterval(sweepGoalTargets, MILESTONE_SWEEP_INTERVAL_MS);

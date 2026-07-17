@@ -97,6 +97,7 @@ const createEntrySchema = z.object({
   tags: z.array(z.string()).default([]),
   isHighlight: z.boolean().default(false),
   entryDate: z.coerce.date().optional(),
+  goalIds: z.array(z.string().min(1)).max(20).optional(),
 });
 
 const ARTIFACT_TYPES = ["CERTIFICATE", "SCORE_SHEET", "PHOTO", "DOCUMENT", "OTHER"] as const;
@@ -397,6 +398,14 @@ supportFormsRouter.post(
     if (!form || !entryAccess.allowed) {
       throw new HttpError(404, "Support form not found");
     }
+    if (body.entryType === "OBJECTIVE") {
+      throw new HttpError(422, "Create performance goals through the Goals workflow; new objective entries are no longer accepted.", "OBJECTIVE_ENTRY_DEPRECATED");
+    }
+    if (body.goalIds?.length) {
+      if (entryAccess.source === "DELEGATION") throw new HttpError(403, "Delegates cannot link accomplishments to a Soldier's goals.");
+      const goals = await prisma.goal.findMany({ where: { id: { in: body.goalIds }, supportFormId: form.id }, select: { id: true } });
+      if (goals.length !== new Set(body.goalIds).size) throw new HttpError(422, "One or more goals do not belong to this support form.");
+    }
     const delegationGrant = entryAccess.source === "DELEGATION" ? entryAccess.grant : undefined;
     const authorRoleAtCreation = req.user.id === form.soldierId
       ? "RATED_SOLDIER"
@@ -419,6 +428,7 @@ supportFormsRouter.post(
           ? { onBehalfOfUserId: form.soldierId, delegationGrantId: delegationGrant.id }
           : {}),
         ...(body.entryDate ? { entryDate: body.entryDate } : {}),
+        ...(body.goalIds?.length ? { goalLinks: { create: body.goalIds.map((goalId) => ({ goalId, linkedById: req.user!.id, linkedByRole: req.user!.id === form.soldierId ? "RATED_SOLDIER" : "RATER" })) } } : {}),
       },
     });
 

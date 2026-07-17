@@ -17,6 +17,7 @@ import { requireEvalChainRole } from "@/lib/utils/chain-auth";
 import { authorizeEvaluationView, canEditEvaluationSection, canSignEvaluationAs, canViewEvaluation } from "@/lib/authorization-policies";
 import { authorizeDelegatedAction } from "@/lib/access-assistance/authorization";
 import { srMqCapPercentFor, isNcoGrade } from "@/lib/utils/grade";
+import { computeFinalFormContentHash, finalReviewRatedSoldierId, invalidateFinalFormReviews, loadFinalFormReviewData } from "@/lib/final-form-review";
 
 export const evaluationsRouter = Router();
 
@@ -78,6 +79,12 @@ const signSchema = z.object({
   role: z.enum(["RATER", "SENIOR_RATER", "REVIEWER", "SOLDIER"]),
   action: z.enum(["SIGN", "DECLINE"]),
   declineReason: z.string().optional(),
+});
+
+const finalReviewConfirmSchema = z.object({ contentHash: z.string().length(64) });
+const finalReviewDisputeSchema = z.object({
+  disputeCategory: z.enum(["RATER_CONTENT", "SENIOR_RATER_CONTENT"]),
+  disputeReason: z.string().trim().min(1).max(2000),
 });
 
 // GET /api/evaluations
@@ -286,6 +293,7 @@ evaluationsRouter.get(
       include: {
         sections: true,
         signatures: true,
+        ratingSnapshot: true,
         ratingChain: {
           include: { ratedSoldier: true, rater: true, seniorRater: true, reviewer: true },
         },
@@ -515,6 +523,9 @@ evaluationsRouter.patch(
           : {}),
       },
     });
+    if (body.principalDutyTitle !== undefined || body.dutyDescription !== undefined || body.seniorRaterRating !== undefined) {
+      await invalidateFinalFormReviews(evaluation.id, req.user.id);
+    }
     res.json(updated);
   }),
 );
@@ -601,6 +612,9 @@ evaluationsRouter.patch(
     // (MVP audit 5.12 — status previously never transitioned at all).
     if (req.user && body.isComplete !== undefined) {
       await recomputeEvalStatus(req.params.id!, req.user.id);
+    }
+    if (req.user && (body.finalBullets !== undefined || body.ratingBinary !== undefined || body.ratingFourLevel !== undefined)) {
+      await invalidateFinalFormReviews(req.params.id!, req.user.id);
     }
 
     res.json(updated);
@@ -760,6 +774,80 @@ evaluationsRouter.post(
   }),
 );
 
+async function requireFinalReviewActor(evaluationId: string, actorId: string) {
+  const evaluation = await loadFinalFormReviewData(evaluationId);
+  if (!evaluation) throw new HttpError(404, "Evaluation not found");
+  if (evaluation.status !== "PENDING_FINAL_FORM_REVIEW") {
+    throw new HttpError(409, "Final form review is not ready until all required signatures are complete.", "FINAL_FORM_REVIEW_NOT_READY");
+  }
+  if (finalReviewRatedSoldierId(evaluation) !== actorId) {
+    throw new HttpError(403, "Only the rated Soldier may review the populated final form.", "FINAL_FORM_REVIEW_WRONG_ROLE");
+  }
+  return evaluation;
+}
+
+// GET /api/evaluations/:id/final-form-review — returns the canonical PDF path
+// and content binding for the rated Soldier's final review gate.
+evaluationsRouter.get(
+  "/:id/final-form-review",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    const evaluation = await requireFinalReviewActor(req.params.id!, req.user.id);
+    const contentHash = await computeFinalFormContentHash(evaluation.id);
+    res.json({
+      pdfPath: `/pdf/evaluations/${evaluation.id}`,
+      contentHash,
+      evalCategory: evaluation.ratingSnapshot?.formCategory ?? (evaluation.formType.startsWith("OER") ? "OER" : "NCOER"),
+    });
+  }),
+);
+
+evaluationsRouter.post(
+  "/:id/final-form-review/confirm",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    const evaluation = await requireFinalReviewActor(req.params.id!, req.user.id);
+    const body = finalReviewConfirmSchema.parse(req.body);
+    const contentHash = await computeFinalFormContentHash(evaluation.id);
+    if (body.contentHash !== contentHash) {
+      throw new HttpError(409, "The form changed after it was opened. Review the current PDF before confirming.", "FINAL_FORM_CONTENT_STALE");
+    }
+    const reviewedAt = new Date();
+    await prisma.$transaction([
+      prisma.finalFormReview.updateMany({ where: { evaluationId: evaluation.id, outcome: "CONFIRMED", supersededAt: null }, data: { supersededAt: reviewedAt } }),
+      prisma.finalFormReview.create({ data: { evaluationId: evaluation.id, reviewedBy: req.user.id, outcome: "CONFIRMED", contentHash, reviewedAt } }),
+      prisma.evaluation.update({ where: { id: evaluation.id }, data: { status: "COMPLETE" } }),
+      prisma.auditLog.create({ data: { evaluationId: evaluation.id, actorId: req.user.id, action: "FINAL_FORM_REVIEW_CONFIRMED", entityType: "FinalFormReview", entityId: evaluation.id, metadata: { contentHash } } }),
+    ]);
+    res.json({ id: evaluation.id, status: "COMPLETE", contentHash });
+  }),
+);
+
+evaluationsRouter.post(
+  "/:id/final-form-review/dispute",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    const evaluation = await requireFinalReviewActor(req.params.id!, req.user.id);
+    const body = finalReviewDisputeSchema.parse(req.body);
+    const contentHash = await computeFinalFormContentHash(evaluation.id);
+    const resetRoles = body.disputeCategory === "RATER_CONTENT"
+      ? ["RATER", "SENIOR_RATER", "SOLDIER", "REVIEWER"]
+      : ["SENIOR_RATER", "SOLDIER", "REVIEWER"];
+    const nextStatus = body.disputeCategory === "RATER_CONTENT" ? "RATER_IN_PROGRESS" : "PENDING_SENIOR_RATER";
+    const now = new Date();
+    await prisma.$transaction([
+      prisma.finalFormReview.create({ data: { evaluationId: evaluation.id, reviewedBy: req.user.id, outcome: "DISPUTED", contentHash, disputeCategory: body.disputeCategory, disputeReason: body.disputeReason } }),
+      prisma.signature.updateMany({ where: { evaluationId: evaluation.id, role: { in: resetRoles as never[] } }, data: { status: "PENDING", signedAt: null, isStale: true, staledAt: now, staledByUserId: req.user.id, staledReason: "FIELD_EDIT" } }),
+      prisma.evaluation.update({ where: { id: evaluation.id }, data: { status: nextStatus as never } }),
+      prisma.auditLog.create({ data: { evaluationId: evaluation.id, actorId: req.user.id, action: "FINAL_FORM_REVIEW_DISPUTED", entityType: "FinalFormReview", entityId: evaluation.id, metadata: { disputeCategory: body.disputeCategory, disputeReason: body.disputeReason, resetRoles } } }),
+    ]);
+    res.json({ id: evaluation.id, status: nextStatus, disputeCategory: body.disputeCategory });
+  }),
+);
+
 // POST /api/evaluations/:id/submit-to-hdqa
 // Transitions COMPLETE → SUBMITTED after all required signatures are collected.
 // Only callable when the evaluation status is COMPLETE.
@@ -768,6 +856,7 @@ evaluationsRouter.post(
   requireAuth,
   asyncHandler(async (req, res) => {
     if (!req.user) throw new HttpError(401, "Not authenticated");
+    await requireEvalChainRole(req.params.id!, req.user, ["RATER", "SOLDIER"]);
 
     const evaluation = await prisma.evaluation.findUnique({
       where: { id: req.params.id },
@@ -777,6 +866,10 @@ evaluationsRouter.post(
       },
     });
     if (!evaluation) throw new HttpError(404, "Evaluation not found");
+
+    if (evaluation.status === "PENDING_FINAL_FORM_REVIEW") {
+      throw new HttpError(409, "The rated Soldier must confirm the populated final form before submission.", "SUBMIT_BLOCKED_PENDING_FINAL_REVIEW");
+    }
 
     // ── Gate: must be in COMPLETE status ──
     if (evaluation.status !== "COMPLETE") {

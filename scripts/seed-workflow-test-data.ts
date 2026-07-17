@@ -3,6 +3,28 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 const testPeriodStart = new Date("2026-07-01T00:00:00.000Z");
 const testPeriodEnd = new Date("2027-06-30T00:00:00.000Z");
+const partIvSections = ["CHARACTER", "PRESENCE", "INTELLECT", "LEADS", "DEVELOPS", "ACHIEVES"] as const;
+
+async function retainOneAvailableFixtureForm(prefix: string, preferredId: string) {
+  const forms = await prisma.supportForm.findMany({
+    where: {
+      id: { startsWith: prefix },
+      disposition: "ACTIVE",
+      isActive: true,
+      status: { notIn: ["CONSUMED", "ARCHIVED", "QUARANTINED"] },
+      evaluations: { none: {} },
+    },
+    select: { id: true, ratingPeriodStart: true },
+    orderBy: { ratingPeriodStart: "asc" },
+  });
+  if (forms.length < 2) return;
+  const retained = forms.find((form) => form.id === preferredId) ?? forms[0]!;
+  await prisma.supportForm.updateMany({
+    where: { id: { in: forms.filter((form) => form.id !== retained.id).map((form) => form.id) } },
+    data: { isActive: false },
+  });
+  console.log(`Deactivated redundant ${prefix} fixture forms; retained ${retained.id}.`);
+}
 
 async function main() {
   const unit = await prisma.unit.upsert({
@@ -19,8 +41,8 @@ async function main() {
     }),
     prisma.user.upsert({
       where: { email: "morgan.reed@army.mil" },
-      update: { category: "OFFICER", roles: ["SOLDIER", "REVIEWER"], unitId: unit.id },
-      create: { id: "dev-reviewer-reed", supabaseId: "dev-reviewer-reed", email: "morgan.reed@army.mil", firstName: "Morgan", lastName: "Reed", rank: "LTC", category: "OFFICER", mos: "11A", roles: ["SOLDIER", "REVIEWER"], unitId: unit.id },
+      update: { category: "OFFICER", roles: ["SOLDIER", "REVIEWER", "COMMANDER"], unitId: unit.id },
+      create: { id: "dev-reviewer-reed", supabaseId: "dev-reviewer-reed", email: "morgan.reed@army.mil", firstName: "Morgan", lastName: "Reed", rank: "LTC", category: "OFFICER", mos: "11A", roles: ["SOLDIER", "REVIEWER", "COMMANDER"], unitId: unit.id },
     }),
     prisma.user.update({ where: { email: "james.davis@army.mil" }, data: { category: "NCO" } }),
     prisma.user.update({ where: { email: "marcus.johnson@army.mil" }, data: { category: "NCO" } }),
@@ -30,6 +52,16 @@ async function main() {
     prisma.user.update({ where: { email: "jordan.lee@army.mil" }, data: { category: "OFFICER" } }),
   ]);
   const [admin, reviewer, davis, johnson, williams, torres, smith, lee] = users;
+
+  await prisma.battalionCommandAssignment.updateMany({
+    where: { battalionId: unit.id, status: "ACTIVE", commanderUserId: { not: reviewer.id } },
+    data: { status: "ENDED", effectiveTo: new Date() },
+  });
+  await prisma.battalionCommandAssignment.upsert({
+    where: { id: "test-battalion-command-reed" },
+    update: { battalionId: unit.id, commanderUserId: reviewer.id, status: "ACTIVE", effectiveFrom: testPeriodStart, effectiveTo: null },
+    create: { id: "test-battalion-command-reed", battalionId: unit.id, commanderUserId: reviewer.id, status: "ACTIVE", effectiveFrom: testPeriodStart },
+  });
 
   const [davisChain, torresChain] = await Promise.all([
     prisma.ratingChain.upsert({
@@ -75,6 +107,73 @@ async function main() {
     data: { isActive: false, status: "CONSUMED" },
   });
 
+  const availableDavisForm = await prisma.supportForm.findFirst({
+    where: {
+      ratingSchemeAssignmentId: davisAssignment.id,
+      disposition: "ACTIVE",
+      isActive: true,
+      status: { notIn: ["CONSUMED", "ARCHIVED", "QUARANTINED"] },
+      evaluations: { none: {} },
+    },
+    select: { id: true },
+  });
+  if (!availableDavisForm) {
+    const nextPeriodStart = new Date("2027-07-01T00:00:00.000Z");
+    const nextPeriodEnd = new Date("2028-06-30T00:00:00.000Z");
+    const supportForm = await prisma.supportForm.create({
+      data: {
+        id: `test-sf-davis-${Date.now()}`,
+        ratingChainId: davisChain.id,
+        ratingSchemeAssignmentId: davisAssignment.id,
+        soldierId: davis.id,
+        evalCategory: "NCOER",
+        ratingPeriodStart: nextPeriodStart,
+        ratingPeriodEnd: nextPeriodEnd,
+        dutyTitle: "Team Leader",
+        dutyMosc: "11B2O",
+        dailyDutiesScope: "Leads and trains a four-Soldier infantry team.",
+        ssdNcoesMet: true,
+        status: "FINALIZED",
+        initiatedByUserId: davis.id,
+        finalizedAt: nextPeriodStart,
+        completedAt: nextPeriodStart,
+        entries: {
+          create: [{
+            section: "LEADS",
+            entryType: "OBJECTIVE",
+            rawText: "Improve team readiness through weekly battle-drill rehearsals.",
+            tags: ["readiness"],
+            createdByUserId: davis.id,
+            authorRoleAtCreation: "RATED_SOLDIER",
+          }],
+        },
+      },
+      select: { id: true },
+    });
+    console.log(`Created fresh Davis support form for repeat testing: ${supportForm.id}`);
+  }
+  await retainOneAvailableFixtureForm("test-sf-davis-", "test-sf-davis-2026");
+  const activeDavisForm = await prisma.supportForm.findFirstOrThrow({
+    where: { ratingSchemeAssignmentId: davisAssignment.id, isActive: true, disposition: "ACTIVE", status: { notIn: ["CONSUMED", "ARCHIVED", "QUARANTINED"] }, evaluations: { none: {} } },
+    orderBy: { createdAt: "desc" },
+  });
+  const activeDavisGoal = await prisma.goal.findFirst({ where: { supportFormId: activeDavisForm.id } });
+  if (!activeDavisGoal) {
+    await prisma.goal.create({
+      data: {
+        supportFormId: activeDavisForm.id,
+        sectionKey: "LEADS",
+        title: "Improve team readiness through weekly battle-drill rehearsals.",
+        description: "Improve team readiness through weekly battle-drill rehearsals.",
+        createdById: davis.id,
+        createdByRole: "RATED_SOLDIER",
+        approvalStatus: "APPROVED",
+        approvedByRaterId: johnson.id,
+        approvedAt: testPeriodStart,
+      },
+    });
+  }
+
   const availableTorresForm = await prisma.supportForm.findFirst({
     where: {
       ratingSchemeAssignmentId: torresAssignment.id,
@@ -118,6 +217,71 @@ async function main() {
     });
     console.log(`Created fresh Torres support form for repeat testing: ${supportForm.id}`);
   }
+  await retainOneAvailableFixtureForm("test-sf-torres-", "test-sf-torres-2026");
+
+  const completeDavisEvaluation = await prisma.evaluation.upsert({
+    where: { id: "test-eval-davis-complete" },
+    update: {
+      ratingChainId: davisChain.id,
+      supportFormId: null,
+      formType: "NCOER_9_1",
+      status: "COMPLETE",
+      disposition: "ACTIVE",
+      periodStart: testPeriodStart,
+      periodEnd: testPeriodEnd,
+      ratedMonths: 12,
+      reasonForSubmission: "Annual",
+      requiresSupplementaryReview: true,
+      principalDutyTitle: "Team Leader",
+      dutyMosc: "11B2O",
+      dailyDutiesScope: "Leads and trains a four-Soldier infantry team.",
+      seniorRaterRating: "HIGHLY_QUALIFIED",
+    },
+    create: {
+      id: "test-eval-davis-complete",
+      ratingChainId: davisChain.id,
+      formType: "NCOER_9_1",
+      status: "COMPLETE",
+      periodStart: testPeriodStart,
+      periodEnd: testPeriodEnd,
+      ratedMonths: 12,
+      reasonForSubmission: "Annual",
+      requiresSupplementaryReview: true,
+      principalDutyTitle: "Team Leader",
+      dutyMosc: "11B2O",
+      dailyDutiesScope: "Leads and trains a four-Soldier infantry team.",
+      seniorRaterRating: "HIGHLY_QUALIFIED",
+    },
+  });
+  await Promise.all(partIvSections.map((section) => prisma.evalSection.upsert({
+    where: { evaluationId_section: { evaluationId: completeDavisEvaluation.id, section } },
+    update: {
+      ratingBinary: "MET_STANDARD",
+      finalBullets: [`Maintained integrity and demonstrated documented ${section.toLowerCase()} performance.`],
+      isComplete: true,
+      completedAt: testPeriodEnd,
+      completedById: johnson.id,
+    },
+    create: {
+      evaluationId: completeDavisEvaluation.id,
+      section,
+      ratingBinary: "MET_STANDARD",
+      finalBullets: [`Maintained integrity and demonstrated documented ${section.toLowerCase()} performance.`],
+      isComplete: true,
+      completedAt: testPeriodEnd,
+      completedById: johnson.id,
+    },
+  })));
+  await Promise.all([
+    { role: "RATER" as const, userId: johnson.id },
+    { role: "SENIOR_RATER" as const, userId: williams.id },
+    { role: "SOLDIER" as const, userId: davis.id },
+    { role: "REVIEWER" as const, userId: reviewer.id },
+  ].map(({ role, userId }) => prisma.signature.upsert({
+    where: { evaluationId_role: { evaluationId: completeDavisEvaluation.id, role } },
+    update: { userId, status: "SIGNED", signedAt: testPeriodEnd, isStale: false },
+    create: { evaluationId: completeDavisEvaluation.id, userId, role, status: "SIGNED", signedAt: testPeriodEnd },
+  })));
 
   console.log("Workflow fixtures are ready: Davis NCOER with supplementary review and Torres OER with MAJ Lee as senior rater.");
 }
