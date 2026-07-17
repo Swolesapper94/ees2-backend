@@ -130,6 +130,8 @@ dashboardRouter.get(
     // ── Zone A — my own chain (I am the rated soldier) ────────────
     const myChain = await prisma.ratingChain.findFirst({
       where: { ratedSoldierId: userId, isActive: true },
+      // Prefer the most recently effective relationship when legacy chains remain active.
+      orderBy: [{ effectiveDate: "desc" }, { createdAt: "desc" }],
       include: {
         ratedSoldier: true,
         rater: true,
@@ -149,7 +151,10 @@ dashboardRouter.get(
 
     // Active support form entry count for myself
     const myActiveSupportForm = await prisma.supportForm.findFirst({
-      where: { soldierId: userId, isActive: true, disposition: "ACTIVE" },
+      where: myChain
+        ? { soldierId: userId, ratingChainId: myChain.id, isActive: true, disposition: "ACTIVE" }
+        : { id: "__no_active_chain__" },
+      orderBy: [{ ratingPeriodStart: "desc" }, { createdAt: "desc" }],
       include: { _count: { select: { entries: true } } },
     });
 
@@ -159,11 +164,13 @@ dashboardRouter.get(
         isActive: true,
         OR: [{ raterId: userId }, { seniorRaterId: userId }],
       },
+      orderBy: [{ effectiveDate: "desc" }, { createdAt: "desc" }],
       include: {
         ratedSoldier: {
           include: {
             supportForms: {
               where: { isActive: true, disposition: "ACTIVE" },
+              orderBy: [{ ratingPeriodStart: "desc" }, { createdAt: "desc" }],
               take: 1,
               include: { _count: { select: { entries: true } } },
             },
@@ -183,7 +190,11 @@ dashboardRouter.get(
       },
     });
 
-    const soldierChains = rawChains
+    const currentChains = rawChains.filter((chain, index, chains) =>
+      chains.findIndex((candidate) => candidate.ratedSoldierId === chain.ratedSoldierId) === index,
+    );
+
+    const soldierChains = currentChains
       .map((chain) => {
         const eval_ = chain.evaluations[0] ?? null;
         const sections = eval_?.sections ?? [];
