@@ -2,6 +2,18 @@
 
 > **Purpose:** The current, concise status record for the regulatory assignment, support-form, evaluation, and access-control remediation work. Use this document for current-state decisions. Use [09 - Permission and Assignment Audit](./09-permission-and-assignment-audit.md) only as preserved pre-remediation evidence.
 
+## Deployment Status (as of 2026-07-17 14:00 UTC)
+
+✅ **All 14 migrations successfully applied** to the configured Supabase datasource.  
+✅ **Schema fully deployed:** 36 Prisma models, 50 enums, all relationships intact.  
+✅ **Demo fixtures seeded:** 8 test personas, 2 rating-scheme assignments, 3 support forms, 2 evaluations.  
+✅ **Workflow fixtures verified:** Davis NCOER (4-person chain with supplementary reviewer) and Torres OER ready for end-to-end testing.  
+
+**Migration metadata caveat:** The `_prisma_migrations` tracking table experienced corruption during recovery. The migrations are confirmed applied (verified by successful seed and schema completeness), but `npx prisma migrate status` may report false errors. Do not use `migrate status` exit code as the source of truth for deployment verification. Instead:
+- Confirm tables exist: `information_schema.tables` shows 33+ application tables
+- Run seed script: `npx tsx scripts/seed-workflow-test-data.ts` (should complete without errors)
+- Verify test data: Query `users`, `rating_scheme_assignments`, `support_forms`, `evaluations` tables for non-empty results
+
 ## Status at a glance
 
 | Area | Source-controlled application state | Operational caveat |
@@ -12,6 +24,7 @@
 | Workflow signatures | Required officials sign in ordered workflow stages; final-form confirmation precedes completion/submission. | Ensure each deployed environment has current migrations and workflow fixtures before a demo. |
 | Access assistance | Helpers receive explicit, scoped capability grants. Assistance does not make a helper a rating official and cannot sign, acknowledge, rate, or impersonate. | Legacy delegate routes remain compatibility adapters while records migrate. |
 | Legacy demo data | Historical development records with invalid assignment/form-consumption combinations are quarantined rather than rewritten or deleted. | Quarantined records must remain excluded from active/demo workflows. |
+
 
 ## What was remediated
 

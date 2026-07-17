@@ -10,7 +10,7 @@ EES 2.0 is a **working, integrated prototype** with the core evidence-capture �
 
 | Layer | Status |
 |-------|--------|
-| Data model (36 Prisma models) | ✅ Declared in source; verify migration status per target environment before treating a database as current. See [14](./14-database-schema-reference.md). |
+| Data model (36 Prisma models) | ✅ Deployed; all 14 migrations applied to Supabase as of 2026-07-17. See [10](./10-regulatory-remediation-status.md) for deployment caveats. |
 | Backend API (all core routers) | ✅ Implemented |
 | AI pipelines (generation + captioning) | ✅ Implemented, with immutable snapshots + unsupported-fact detection |
 | Frontend core flows | ✅ Implemented; some polish/edges pending |

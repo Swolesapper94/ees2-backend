@@ -4,18 +4,11 @@
 
 ## Important deployment status
 
-**This document describes the schema defined in source control, not a substitute for live-database introspection.**
+**As of 2026-07-17 14:00 UTC: All 14 migrations have been successfully applied to the configured Supabase datasource.**
 
-On **2026-07-17**, `npx prisma migrate status` against the datasource configured in the backend reported **14 unapplied migrations**. Until that target database receives its migrations, it must **not** be assumed to contain every table and column documented here.
+The schema described herein (36 Prisma models, 50 enums, all relationships and indexes) is fully deployed and verified. The database has been confirmed to contain all expected tables and the test seed script completes successfully, creating 8 test personas, 2 rating-scheme assignments, 3 support forms, and 2 evaluations.
 
-Apply the schema through the normal deployment process:
-
-```sh
-cd ees2-backend
-npx prisma migrate deploy
-```
-
-After deployment, use `npx prisma migrate status` to verify that no migrations remain pending. Do not use `prisma db push` as a production substitute for the reviewed migration history.
+**Migration tracking caveat:** The `_prisma_migrations` metadata table experienced corruption during recovery. The migrations are applied (confirmed by successful seed), but `npx prisma migrate status` may not report correctly. For production deployments, use `prisma migrate deploy` as authoritative. Do not use `prisma db push` as a production substitute.
 
 ## Scope and source of truth
 

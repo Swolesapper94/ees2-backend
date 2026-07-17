@@ -1,0 +1,1054 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Unit {
+  id        String   @id @default(cuid())
+  name      String
+  uic       String   @unique
+  parentId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("units")
+}
+
+model User {
+  id                      String                  @id @default(cuid())
+  supabaseId              String
+  email                   String                  @unique
+  firstName               String
+  lastName                String
+  rank                    Rank
+  mos                     String
+  roles                   UserRole[]
+  profilePictureUrl       String?
+  notificationPreferences Json?
+  unitId                  String?
+  dodid                   String?
+  lastLoginAt             DateTime?
+  category                SoldierCategory?
+  applicationAccessStatus ApplicationAccessStatus @default(ACTIVE)
+  accessReviewStatus      AccessReviewStatus      @default(CURRENT)
+  applicationSupportRole  ApplicationSupportRole  @default(NONE)
+  suspensionReason        String?
+  suspendedAt             DateTime?
+  suspendedByUserId       String?
+  breakGlassEligible      Boolean                 @default(false)
+  temporaryAdminExpiresAt DateTime?
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
+
+  @@map("users")
+}
+
+model IdentitySourceRecord {
+  id                    String               @id @default(cuid())
+  userId                String
+  sourceSystem          IdentitySourceSystem @default(NOT_CONFIGURED)
+  authoritativePersonId String?
+  authoritativeEmail    String?
+  dutyPosition          String?
+  sourcePayload         Json?
+  syncStatus            IdentitySyncStatus   @default(NOT_CONFIGURED)
+  lastSynchronizedAt    DateTime?
+  lastSyncAttemptAt     DateTime?
+  syncError             String?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  @@map("identity_source_records")
+}
+
+model IdentitySyncEvent {
+  id            String               @id @default(cuid())
+  userId        String
+  sourceSystem  IdentitySourceSystem
+  status        IdentitySyncStatus
+  action        String
+  details       Json?
+  initiatedById String?
+  createdAt     DateTime             @default(now())
+
+  @@map("identity_sync_events")
+}
+
+model IdentityException {
+  id             String                  @id @default(cuid())
+  userId         String?
+  type           IdentityExceptionType
+  status         IdentityExceptionStatus @default(OPEN)
+  severity       String                  @default("MEDIUM")
+  summary        String
+  details        Json?
+  resolvedAt     DateTime?
+  resolvedById   String?
+  resolutionNote String?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  @@map("identity_exceptions")
+}
+
+model AdministrativeScope {
+  id              String                  @id @default(cuid())
+  administratorId String
+  unitId          String?
+  scopeType       AdministrativeScopeType @default(IDENTITY_ACCESS)
+  expiresAt       DateTime?
+  createdById     String?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  @@map("administrative_scopes")
+}
+
+model ManualOverride {
+  id           String    @id @default(cuid())
+  userId       String
+  field        String
+  value        Json?
+  reason       String
+  expiresAt    DateTime?
+  createdById  String
+  reviewedAt   DateTime?
+  reviewedById String?
+  createdAt    DateTime  @default(now())
+
+  @@map("manual_overrides")
+}
+
+model RatingSchemeAssignment {
+  id                          String                 @id @default(cuid())
+  ratingSchemeId              String?
+  ratedSoldierId              String
+  raterId                     String
+  intermediateRaterId         String?
+  seniorRaterId               String
+  supplementaryReviewerId     String?
+  unitId                      String?
+  formCategory                EvalCategory
+  effectiveFrom               DateTime
+  effectiveTo                 DateTime?
+  status                      RatingAssignmentStatus @default(DRAFT)
+  requiresSupplementaryReview Boolean                @default(false)
+  changeReason                String?
+  exceptionToPolicyId         String?
+  supersedesAssignmentId      String?
+  approvedByUserId            String?
+  approvedAt                  DateTime?
+  publishedByUserId           String?
+  publishedAt                 DateTime?
+  createdByUserId             String?
+  createdAt                   DateTime               @default(now())
+  updatedAt                   DateTime               @updatedAt
+
+  @@map("rating_scheme_assignments")
+}
+
+model BattalionCommandAssignment {
+  id              String                           @id @default(cuid())
+  battalionId     String
+  commanderUserId String
+  status          BattalionCommandAssignmentStatus @default(ACTIVE)
+  effectiveFrom   DateTime
+  effectiveTo     DateTime?
+  createdAt       DateTime                         @default(now())
+  updatedAt       DateTime                         @updatedAt
+
+  @@map("battalion_command_assignments")
+}
+
+model RatingScheme {
+  id                          String             @id @default(cuid())
+  unitId                      String
+  battalionId                 String
+  version                     Int
+  status                      RatingSchemeStatus @default(DRAFT)
+  effectiveFrom               DateTime
+  effectiveTo                 DateTime?
+  createdByUserId             String
+  submittedByUserId           String?
+  submittedAt                 DateTime?
+  approvedByUserId            String?
+  approvedAt                  DateTime?
+  approvalAuthorityPositionId String?
+  approvalComments            String?
+  publishedByUserId           String?
+  publishedAt                 DateTime?
+  returnedByUserId            String?
+  returnedAt                  DateTime?
+  returnComments              String?
+  changeReason                String?
+  previousSchemeId            String?
+  versionHash                 String?
+  createdAt                   DateTime           @default(now())
+  updatedAt                   DateTime           @updatedAt
+
+  @@map("rating_schemes")
+}
+
+model RatingSchemeDelegation {
+  id              String                             @id @default(cuid())
+  battalionId     String
+  commanderUserId String
+  delegateUserId  String
+  effectiveFrom   DateTime
+  effectiveTo     DateTime?
+  status          RatingSchemeDelegationStatus       @default(ACTIVE)
+  permissions     RatingSchemeDelegationPermission[]
+  grantedByUserId String
+  grantedAt       DateTime                           @default(now())
+  revokedByUserId String?
+  revokedAt       DateTime?
+  createdAt       DateTime                           @default(now())
+  updatedAt       DateTime                           @updatedAt
+
+  @@map("rating_scheme_delegations")
+}
+
+model EvaluationRatingSnapshot {
+  id                       String          @id @default(cuid())
+  evaluationId             String
+  ratingSchemeAssignmentId String
+  ratedSoldierId           String
+  raterId                  String
+  intermediateRaterId      String?
+  seniorRaterId            String
+  supplementaryReviewerId  String?
+  ratedRank                Rank
+  ratedCategory            SoldierCategory
+  raterRank                Rank
+  raterCategory            SoldierCategory
+  seniorRaterRank          Rank
+  seniorRaterCategory      SoldierCategory
+  formCategory             EvalCategory
+  ratedGrade               String
+  exceptionToPolicyId      String?
+  createdAt                DateTime        @default(now())
+
+  @@map("evaluation_rating_snapshots")
+}
+
+model RatingChain {
+  id             String    @id @default(cuid())
+  ratedSoldierId String
+  raterId        String
+  seniorRaterId  String
+  reviewerId     String?
+  effectiveDate  DateTime
+  endDate        DateTime?
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("rating_chains")
+}
+
+model CounselingSession {
+  id              String         @id @default(cuid())
+  ratingChainId   String
+  type            CounselingType
+  sessionDate     DateTime
+  notes           String?
+  raterInitials   String?
+  soldierInitials String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@map("counseling_sessions")
+}
+
+model SupportForm {
+  id                       String            @id @default(cuid())
+  soldierId                String
+  ratingChainId            String?
+  ratingSchemeAssignmentId String?
+  evalCategory             EvalCategory?
+  ratingPeriodStart        DateTime
+  ratingPeriodEnd          DateTime?
+  dutyTitle                String
+  dutyMosc                 String?
+  dailyDutiesScope         String?
+  areasOfEmphasis          String?
+  appointedDuties          String?
+  ssdNcoesMet              Boolean?
+  soldierGoals             String?
+  raterContextNote         String?
+  raterContextNoteSetById  String?
+  raterContextNoteSetAt    DateTime?
+  isActive                 Boolean           @default(true)
+  status                   SupportFormStatus @default(DRAFT)
+  disposition              RecordDisposition @default(ACTIVE)
+  initiatedByUserId        String?
+  initialCounselingDate    DateTime?
+  finalizedAt              DateTime?
+  consumedByEvaluationId   String?
+  consumedAt               DateTime?
+  version                  Int               @default(1)
+  parentFormId             String?
+  completedAt              DateTime?
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
+
+  @@map("support_forms")
+}
+
+model SupportFormEntry {
+  id                   String                  @id @default(cuid())
+  supportFormId        String
+  entryDate            DateTime                @default(now())
+  section              SectionKey
+  entryType            EntryType
+  rawText              String
+  createdByUserId      String?
+  authorRoleAtCreation EntryAuthorRole?
+  lastEditedByUserId   String?
+  onBehalfOfUserId     String?
+  delegationGrantId    String?
+  lockedAt             DateTime?
+  lockReason           String?
+  sourceVersion        Int                     @default(1)
+  tags                 String[]
+  isHighlight          Boolean                 @default(false)
+  counseled            Boolean                 @default(false)
+  counseledDate        DateTime?
+  usedInEvalId         String?
+  confirmationStatus   EntryConfirmationStatus @default(UNREVIEWED)
+  confirmedById        String?
+  confirmedAt          DateTime?
+  clarificationNote    String?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+
+  @@map("support_form_entries")
+}
+
+model Goal {
+  id                               String             @id @default(cuid())
+  supportFormId                    String
+  sectionKey                       SectionKey
+  title                            String
+  description                      String
+  category                         GoalCategory?
+  targetDate                       DateTime?
+  createdById                      String
+  createdByRole                    EntryAuthorRole
+  lastEditedById                   String?
+  lastEditedAt                     DateTime?
+  approvalStatus                   GoalApprovalStatus @default(DRAFT)
+  approvedByRaterId                String?
+  approvedAt                       DateTime?
+  revisionNote                     String?
+  establishedAtCounselingSessionId String?
+  soldierAssessment                GoalProgress?
+  soldierAssessmentNote            String?
+  soldierAssessmentAt              DateTime?
+  raterAssessment                  GoalProgress?
+  raterAssessmentById              String?
+  raterAssessmentNote              String?
+  raterAssessmentAt                DateTime?
+  carriedForwardFromGoalId         String?
+  createdAt                        DateTime           @default(now())
+  updatedAt                        DateTime           @updatedAt
+
+  @@map("goals")
+}
+
+model GoalEntryLink {
+  id                 String          @id @default(cuid())
+  goalId             String
+  supportFormEntryId String
+  linkedById         String
+  linkedByRole       EntryAuthorRole
+  linkedAt           DateTime        @default(now())
+
+  @@map("goal_entry_links")
+}
+
+model GoalCounselingDiscussion {
+  id                  String   @id @default(cuid())
+  goalId              String
+  counselingSessionId String
+  note                String?
+  percentAchieved     Int?
+  setById             String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("goal_counseling_discussions")
+}
+
+model SupportFormEntryArtifact {
+  id                     String                @id @default(cuid())
+  entryId                String
+  createdByUserId        String?
+  lastEditedByUserId     String?
+  onBehalfOfUserId       String?
+  delegationGrantId      String?
+  type                   ArtifactType
+  fileUrl                String
+  fileType               String
+  aiCaption              String?
+  aiCaptionStatus        ArtifactCaptionStatus @default(PENDING)
+  aiCaptionError         String?
+  flaggedByServiceMember Boolean               @default(false)
+  flagNote               String?
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+
+  @@map("support_form_entry_artifacts")
+}
+
+model Evaluation {
+  id                          String             @id @default(cuid())
+  ratingChainId               String
+  supportFormId               String?
+  formType                    EvalFormType
+  status                      EvalStatus         @default(DRAFT)
+  disposition                 RecordDisposition  @default(ACTIVE)
+  requiresSupplementaryReview Boolean            @default(false)
+  periodStart                 DateTime
+  periodEnd                   DateTime
+  ratedMonths                 Int
+  nonRatedMonths              Int                @default(0)
+  nonRatedCodes               String?
+  reasonForSubmission         String
+  statusCode                  String?
+  numberOfEnclosures          Int                @default(0)
+  principalDutyTitle          String?
+  dutyMosc                    String?
+  dailyDutiesScope            String?
+  areasOfSpecialEmphasis      String?
+  appointedDuties             String?
+  successiveAssignment1       String?
+  successiveAssignment2       String?
+  broadeningAssignment        String?
+  seniorRaterRating           SeniorRaterRating?
+  acftPassFail                String?
+  acftDate                    DateTime?
+  heightInches                Int?
+  weightLbs                   Int?
+  withinWeightStandard        Boolean?
+  submittedAt                 DateTime?
+  acceptedAt                  DateTime?
+  createdAt                   DateTime           @default(now())
+  updatedAt                   DateTime           @updatedAt
+
+  @@map("evaluations")
+}
+
+model EvaluationReturn {
+  id           String       @id @default(cuid())
+  evaluationId String
+  returnReason ReturnReason
+  returnedAt   DateTime     @default(now())
+  notes        String?
+  resolvedAt   DateTime?
+  createdAt    DateTime     @default(now())
+
+  @@map("evaluation_returns")
+}
+
+model EvalSection {
+  id               String           @id @default(cuid())
+  evaluationId     String
+  section          SectionKey
+  ratingBinary     RatingBinary?
+  ratingFourLevel  RatingFourLevel?
+  stagingBullets   String[]         @default([])
+  finalBullets     String[]         @default([])
+  bulletSources    Json?
+  bulletProvenance Json?
+  isComplete       Boolean          @default(false)
+  completedAt      DateTime?
+  completedById    String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@unique([evaluationId, section])
+  @@map("eval_sections")
+}
+
+model SeniorRaterProfile {
+  id          String   @id @default(cuid())
+  userId      String
+  profileData Json     @default("{}")
+  lastUpdated DateTime @default(now())
+
+  @@map("senior_rater_profiles")
+}
+
+model FinalFormReview {
+  id              String             @id @default(cuid())
+  evaluationId    String
+  reviewedBy      String
+  outcome         FinalReviewOutcome
+  contentHash     String
+  disputeCategory DisputeCategory?
+  disputeReason   String?
+  reviewedAt      DateTime           @default(now())
+  supersededAt    DateTime?
+
+  @@map("final_form_reviews")
+}
+
+model Signature {
+  id               String          @id @default(cuid())
+  evaluationId     String
+  userId           String
+  role             UserRole
+  status           SignatureStatus @default(PENDING)
+  signedAt         DateTime?
+  declineReason    String?
+  notifiedAt       DateTime?
+  nameConfirmation String?
+  ipAddress        String?
+  userAgent        String?
+  cacCertSerial    String?
+  pkiTokenHash     String?
+  contentHash      String?
+  isStale          Boolean         @default(false)
+  staledAt         DateTime?
+  staledByUserId   String?
+  staledReason     StaleReason?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@unique([evaluationId, userId, role])
+  @@map("signatures")
+}
+
+model Notification {
+  id           String               @id @default(cuid())
+  userId       String
+  evaluationId String?
+  category     NotificationCategory @default(SYSTEM)
+  title        String
+  message      String
+  actionUrl    String?
+  actionLabel  String?
+  isDismissed  Boolean              @default(false)
+  readAt       DateTime?
+  createdAt    DateTime             @default(now())
+
+  @@map("notifications")
+}
+
+model AuditLog {
+  id                   String                @id @default(cuid())
+  evaluationId         String?
+  actorId              String
+  action               String
+  entityType           String
+  entityId             String
+  metadata             Json?
+  subjectUserId        String?
+  delegationGrantId    String?
+  delegationCapability DelegationCapability?
+  requestId            String?
+  ipAddress            String?
+  userAgent            String?
+  createdAt            DateTime              @default(now())
+
+  @@map("audit_logs")
+}
+
+model EvalMilestone {
+  id           String          @id @default(cuid())
+  evaluationId String
+  type         MilestoneType
+  status       MilestoneStatus @default(UPCOMING)
+  dueDate      DateTime
+  completedAt  DateTime?
+  waivedAt     DateTime?
+  waivedById   String?
+  waivedReason String?
+  notifiedAt   DateTime?
+  escalatedAt  DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@map("eval_milestones")
+}
+
+model EvalComment {
+  id                 String        @id @default(cuid())
+  evaluationId       String
+  sectionKey         SectionKey?
+  authorId           String
+  createdByUserId    String?
+  lastEditedByUserId String?
+  onBehalfOfUserId   String?
+  delegationGrantId  String?
+  content            String
+  status             CommentStatus @default(OPEN)
+  resolvedById       String?
+  resolvedAt         DateTime?
+  parentId           String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@map("eval_comments")
+}
+
+model Delegate {
+  id                 String              @id @default(cuid())
+  principalId        String
+  delegateUserId     String
+  accessLevel        DelegateAccessLevel @default(VIEW_ONLY)
+  effectiveDate      DateTime
+  expiryDate         DateTime?
+  isActive           Boolean             @default(true)
+  appointedReason    String?
+  grantorUserId      String?
+  subjectUserId      String?
+  delegationType     DelegationType?
+  status             DelegationStatus    @default(PENDING)
+  effectiveFrom      DateTime?
+  effectiveTo        DateTime?
+  evaluationId       String?
+  supportFormId      String?
+  ratingAssignmentId String?
+  unitId             String?
+  justification      String?
+  requiresReview     Boolean             @default(false)
+  createdByUserId    String?
+  approvedByUserId   String?
+  acceptedAt         DateTime?
+  revokedAt          DateTime?
+  revokedByUserId    String?
+  revocationReason   String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@map("delegates")
+}
+
+model DelegationCapabilityGrant {
+  id                String               @id @default(cuid())
+  delegationGrantId String
+  capability        DelegationCapability
+
+  @@map("delegation_capability_grants")
+}
+
+enum Rank {
+  PVT
+  PV2
+  PFC
+  SPC
+  CPL
+  SGT
+  SSG
+  SFC
+  MSG
+  FIRST_SERGEANT
+  SGM
+  CSM
+  SMA
+  WO1
+  CW2
+  CW3
+  CW4
+  CW5
+  SECOND_LT
+  FIRST_LT
+  CPT
+  MAJ
+  LTC
+  COL
+  BG
+  MG
+  LTG
+  GEN
+  GA
+}
+
+enum UserRole {
+  SOLDIER
+  RATER
+  SENIOR_RATER
+  REVIEWER
+  COMMANDER
+  ADMIN
+}
+
+enum IdentitySourceSystem {
+  NOT_CONFIGURED
+  IPPS_A
+  DEFENSE_MANPOWER
+  DEVELOPMENT_SEED
+}
+
+enum IdentitySyncStatus {
+  CURRENT
+  STALE
+  PENDING
+  FAILED
+  UNMATCHED
+  NOT_CONFIGURED
+}
+
+enum ApplicationAccessStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING_REVIEW
+  DISABLED
+  LOCKED
+}
+
+enum AccessReviewStatus {
+  CURRENT
+  PENDING_REVIEW
+  EXCEPTION_REVIEW
+}
+
+enum ApplicationSupportRole {
+  NONE
+  SUPPORT
+  ADMINISTRATOR
+}
+
+enum IdentityExceptionType {
+  DUPLICATE_IDENTITY
+  UNMATCHED_AUTH_ACCOUNT
+  MISSING_SOURCE_RECORD
+  STALE_SOURCE_DATA
+  UNIT_MAPPING_FAILURE
+  IDENTIFIER_CONFLICT
+  INVALID_ASSIGNMENT
+  SYNC_FAILURE
+  MANUAL_OVERRIDE_REVIEW
+}
+
+enum IdentityExceptionStatus {
+  OPEN
+  RESOLVED
+  ESCALATED
+}
+
+enum AdministrativeScopeType {
+  IDENTITY_ACCESS
+  SERVICING_ADMINISTRATION
+  BREAK_GLASS
+}
+
+enum SoldierCategory {
+  OFFICER
+  NCO
+  WARRANT
+  CIVILIAN
+}
+
+enum RatingAssignmentStatus {
+  DRAFT
+  APPROVED
+  PUBLISHED
+  SUPERSEDED
+  CANCELLED
+  QUARANTINED
+}
+
+enum RatingSchemeStatus {
+  DRAFT
+  IN_VALIDATION
+  PENDING_APPROVAL
+  RETURNED
+  APPROVED
+  PUBLISHED
+  SUPERSEDED
+  CANCELLED
+}
+
+enum RatingSchemeDelegationStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+  SUSPENDED
+}
+
+enum RatingSchemeDelegationPermission {
+  CREATE_DRAFT
+  EDIT_DRAFT
+  IMPORT_ASSIGNMENTS
+  RESOLVE_VALIDATION
+  SUBMIT_FOR_APPROVAL
+  VIEW_AUDIT
+}
+
+enum BattalionCommandAssignmentStatus {
+  ACTIVE
+  ENDED
+  SUSPENDED
+}
+
+enum EvalFormType {
+  NCOER_9_1
+  NCOER_9_2
+  NCOER_9_3
+  OER_67_10_1
+  OER_67_10_1A
+  OER_67_10_2
+  OER_67_10_2A
+  OER_67_10_3
+  OER_67_10_4
+}
+
+enum RatingBinary {
+  MET_STANDARD
+  DID_NOT_MEET_STANDARD
+}
+
+enum RatingFourLevel {
+  NOT_MET_STANDARD
+  QUALIFIED
+  EXCEEDED_STANDARD
+  FAR_EXCEEDED_STANDARD
+}
+
+enum SeniorRaterRating {
+  MOST_QUALIFIED
+  HIGHLY_QUALIFIED
+  QUALIFIED
+  NOT_QUALIFIED
+}
+
+enum EvalStatus {
+  DRAFT
+  RATER_IN_PROGRESS
+  PENDING_SENIOR_RATER
+  PENDING_SOLDIER_ACK
+  PENDING_SUPPLEMENTARY_REVIEW
+  PENDING_FINAL_FORM_REVIEW
+  COMPLETE
+  SUBMITTED
+  ACCEPTED
+  RETURNED
+}
+
+enum SectionKey {
+  CHARACTER
+  PRESENCE
+  INTELLECT
+  LEADS
+  DEVELOPS
+  ACHIEVES
+  RATER_OVERALL
+  SENIOR_RATER_OVERALL
+  SOLDIER_COMMENTS
+}
+
+enum EntryType {
+  OBJECTIVE
+  ACCOMPLISHMENT
+}
+
+enum GoalCategory {
+  ROUTINE
+  PROBLEM_SOLVING
+  INNOVATIVE
+  PERSONAL_DEVELOPMENT
+  OTHER
+}
+
+enum GoalApprovalStatus {
+  DRAFT
+  PENDING_RATER_REVIEW
+  APPROVED
+  NEEDS_REVISION
+}
+
+enum GoalProgress {
+  NOT_STARTED
+  IN_PROGRESS
+  ACHIEVED
+  PARTIALLY_ACHIEVED
+  NOT_ACHIEVED
+}
+
+enum FinalReviewOutcome {
+  CONFIRMED
+  DISPUTED
+}
+
+enum DisputeCategory {
+  RATER_CONTENT
+  SENIOR_RATER_CONTENT
+}
+
+enum EntryConfirmationStatus {
+  UNREVIEWED
+  CONFIRMED
+  NEEDS_CLARIFICATION
+  NOT_USED
+}
+
+enum SupportFormStatus {
+  DRAFT
+  INITIAL_COUNSELING_COMPLETE
+  ACTIVE
+  FINALIZED
+  CONSUMED
+  ARCHIVED
+  QUARANTINED
+}
+
+enum EntryAuthorRole {
+  RATED_SOLDIER
+  RATER
+  INTERMEDIATE_RATER
+  SENIOR_RATER
+  SERVICING_ADMIN
+}
+
+enum RecordDisposition {
+  ACTIVE
+  QUARANTINED
+  ARCHIVED
+}
+
+enum SignatureStatus {
+  NOT_REQUIRED
+  PENDING
+  SIGNED
+  DECLINED
+}
+
+enum SupportFormUploadStatus {
+  PENDING_EXTRACT
+  EXTRACTING
+  PENDING_PARSE
+  PARSING
+  PENDING_BULLETS
+  GENERATING
+  COMPLETE
+  FAILED
+}
+
+enum AIBulletStatus {
+  PENDING_REVIEW
+  ACCEPTED
+  EDITED
+  REJECTED
+}
+
+enum AIBulletConfidence {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum StaleReason {
+  FIELD_EDIT
+  ADMIN_CORRECTION
+}
+
+enum CounselingType {
+  INITIAL
+  QUARTERLY
+}
+
+enum ArtifactType {
+  CERTIFICATE
+  SCORE_SHEET
+  PHOTO
+  DOCUMENT
+  OTHER
+}
+
+enum ArtifactCaptionStatus {
+  PENDING
+  COMPLETE
+  FAILED
+}
+
+enum EvalCategory {
+  NCOER
+  OER
+}
+
+enum ReturnReason {
+  ADMIN_ERROR
+  PROHIBITED_LANGUAGE
+  MISSING_SIGNATURE
+  RATING_PERIOD_ERROR
+  OTHER
+}
+
+enum NotificationCategory {
+  EVAL_LIFECYCLE
+  MILESTONE
+  COLLABORATION
+  DELEGATE
+  SYSTEM
+}
+
+enum MilestoneType {
+  INITIAL_COUNSELING_DUE
+  QUARTERLY_COUNSELING_1
+  QUARTERLY_COUNSELING_2
+  QUARTERLY_COUNSELING_3
+  RATER_SECTION_DUE
+  SENIOR_RATER_DUE
+  SOLDIER_ACK_DUE
+  EVAL_SUBMISSION_DUE
+}
+
+enum MilestoneStatus {
+  UPCOMING
+  DUE_SOON
+  OVERDUE
+  COMPLETE
+  WAIVED
+}
+
+enum CommentStatus {
+  OPEN
+  RESOLVED
+  ACKNOWLEDGED
+}
+
+enum DelegateAccessLevel {
+  VIEW_ONLY
+  PUSH_ALONG
+}
+
+enum DelegationType {
+  PERSONAL_ASSISTANT
+  RATING_OFFICIAL_ASSISTANT
+  SERVICING_ADMIN_ASSIGNMENT
+}
+
+enum DelegationStatus {
+  PENDING
+  ACTIVE
+  DECLINED
+  EXPIRED
+  REVOKED
+  SUSPENDED
+}
+
+enum DelegationCapability {
+  VIEW_WORKFLOW_STATUS
+  VIEW_ADMINISTRATIVE_DATA
+  VIEW_SUPPORT_FORM
+  VIEW_PERMITTED_EVALUATION_DATA
+  ADD_DRAFT_SUPPORT_ENTRY
+  EDIT_OWN_DRAFT_SUPPORT_ENTRY
+  UPLOAD_ARTIFACT
+  ORGANIZE_ARTIFACT
+  COMPLETE_ADMINISTRATIVE_FIELD
+  RESPOND_TO_ADMIN_RETURN
+  REQUEST_SOLDIER_REVIEW
+  REQUEST_RATER_REVIEW
+  SEND_WORKFLOW_REMINDER
+  DOWNLOAD_WORKING_COPY
+  ADD_NON_EVALUATIVE_COMMENT
+}
