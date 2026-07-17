@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 
 const sourceFormId = "test-sf-davis-1783951336663";
 const editGoalId = "test-goal-edit-source-2028";
+const revisionGoalId = "test-goal-revision-source-2028";
 const carrySourceGoalId = "test-goal-carry-source-2028";
 const carryTargetFormId = "test-goal-carry-target-2028";
 
@@ -97,7 +98,35 @@ async function main() {
     },
   });
 
-  console.log(JSON.stringify({ sourceFormId: sourceForm.id, targetFormId: targetForm.id, editGoalId, carrySourceGoalId }));
+  await prisma.goal.upsert({
+    where: { id: revisionGoalId },
+    update: {
+      supportFormId: sourceForm.id,
+      sectionKey: "DEVELOPS",
+      title: "Fixture goal for rater revision validation",
+      description: "A disposable goal awaiting rater review so the revision path can be tested.",
+      category: "PERSONAL_DEVELOPMENT",
+      createdById: sourceForm.soldierId,
+      createdByRole: "RATED_SOLDIER",
+      approvalStatus: "PENDING_RATER_REVIEW",
+      revisionNote: null,
+      approvedByRaterId: null,
+      approvedAt: null,
+    },
+    create: {
+      id: revisionGoalId,
+      supportFormId: sourceForm.id,
+      sectionKey: "DEVELOPS",
+      title: "Fixture goal for rater revision validation",
+      description: "A disposable goal awaiting rater review so the revision path can be tested.",
+      category: "PERSONAL_DEVELOPMENT",
+      createdById: sourceForm.soldierId,
+      createdByRole: "RATED_SOLDIER",
+      approvalStatus: "PENDING_RATER_REVIEW",
+    },
+  });
+
+  console.log(JSON.stringify({ sourceFormId: sourceForm.id, targetFormId: targetForm.id, editGoalId, revisionGoalId, carrySourceGoalId }));
 }
 
 main().finally(() => prisma.$disconnect());
