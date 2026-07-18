@@ -65,7 +65,18 @@ export async function searchRegulations(
 
     return rows;
   } catch (error: any) {
-    // Graceful degradation: if embedding column doesn't exist, log and return empty
+    // Graceful degradation: if the RAG table/embedding column doesn't exist,
+    // return no context instead of breaking the evaluation editor. This can
+    // happen in partially recovered dev databases before regulation ingestion
+    // or schema repair has completed.
+    if (error?.meta?.code === "42P01" && error?.meta?.message?.includes("regulation_chunks")) {
+      console.warn(
+        "[searchRegulations] regulation_chunks table not found. Vector search unavailable. " +
+        "Run the reviewed migrations/schema sync and regulation ingestion to enable this feature.",
+      );
+      return [];
+    }
+
     if (error?.meta?.code === "42703" && error?.meta?.message?.includes("embedding")) {
       console.warn(
         "[searchRegulations] Embedding column not found. Vector search unavailable. " +

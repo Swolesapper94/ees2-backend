@@ -21,7 +21,9 @@
     "seed:goal-additions": "tsx scripts/seed-goal-additions-test-data.ts",
     "cleanup:goal-additions": "tsx scripts/cleanup-goal-additions-test-data.ts",
     "test:access-assistance": "tsx scripts/test-access-assistance.ts",
-    "ingest:regulations": "tsx src/lib/regulations/ingest.ts"
+    "ingest:regulations": "tsx src/lib/regulations/ingest.ts",
+    "seed:ncoer-demo-content": "tsx scripts/seed-ncoer-demo-content.ts",
+    "seed:rating-scheme-demo": "tsx scripts/seed-rating-scheme-demo.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

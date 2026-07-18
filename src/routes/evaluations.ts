@@ -640,6 +640,7 @@ evaluationsRouter.post(
       ratingBinary: s.ratingBinary,
       ratingFourLevel: s.ratingFourLevel,
       finalBullets: s.finalBullets,
+      isComplete: s.isComplete,
       bulletSources:
         (s.bulletSources as Record<string, never> | null) ?? undefined,
       bulletProvenance:

@@ -19,6 +19,18 @@ export function createApp(): Express {
   app.use(express.json({ limit: "1mb" }));
   app.use(morgan(isProd ? "combined" : "dev"));
 
+  // Authenticated API data is persona- and relationship-scoped. Keep it out
+  // of browser/proxy caches; the frontend owns short-lived in-memory SWR
+  // caching and explicit invalidation after workflow mutations.
+  app.use("/api", (req, res, next) => {
+    if (req.path !== "/health") {
+      res.setHeader("Cache-Control", "private, no-store");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+    }
+    next();
+  });
+
   app.use("/api", apiRouter);
 
   app.use(notFound);

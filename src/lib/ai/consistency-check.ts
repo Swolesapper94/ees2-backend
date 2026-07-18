@@ -28,6 +28,7 @@ export interface ConsistencyFlag {
     | "BOX_NARRATIVE_MISMATCH"
     | "DUPLICATE_BULLET"
     | "RATING_NARRATIVE_STRENGTH"
+    | "SECTION_INCOMPLETE"
     | "EMPTY_SECTION"
     | "COUNSELING_GAP"
     | "SR_PROFILE_MQ_WARNING"
@@ -54,6 +55,7 @@ export interface SectionForCheck {
   ratingBinary?: string | null;
   ratingFourLevel?: string | null;
   finalBullets: string[];
+  isComplete?: boolean | null;
   bulletSources?: Record<string, BulletSource> | null;
   // Provenance chain for AI-sourced bullets (MVP audit 5.9) — used here to
   // re-check final bullet text against its immutable source snapshot.
@@ -118,13 +120,27 @@ export function runConsistencyCheck(input: ConsistencyInput): ConsistencyFlag[] 
     const hasRating = Boolean(s.ratingBinary || s.ratingFourLevel);
     const bulletCount = s.finalBullets.length;
 
+    // Workflow gate — every required Part IV section must be marked complete
+    // before the report can move into signature/final-form routing. Per-bullet
+    // generation checks do not know whether the whole report is ready.
+    if (!s.isComplete) {
+      flags.push({
+        code: "SECTION_INCOMPLETE",
+        severity: "BLOCKING_ERROR",
+        section: s.section,
+        message: `${s.section} is not complete. Complete this section before routing or exporting the final form.`,
+        resolvable: true,
+      });
+      continue;
+    }
+
     // 4 — Empty section: box checked but no bullets
     if (hasRating && bulletCount === 0) {
       flags.push({
         code: "EMPTY_SECTION",
-        severity: "WARNING",
+        severity: "BLOCKING_ERROR",
         section: s.section,
-        message: `${s.section} has a rating but no bullets.`,
+        message: `${s.section} has a rating but no bullets. HDQA will kick back a rated section that has no supporting narrative.`,
         resolvable: true,
       });
     }
