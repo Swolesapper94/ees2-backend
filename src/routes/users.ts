@@ -58,7 +58,8 @@ usersRouter.get(
     const unit = req.user.unitId
       ? await prisma.unit.findUnique({ where: { id: req.user.unitId } })
       : null;
-    res.json({ ...req.user, unit });
+    const identitySourceRecord = await prisma.identitySourceRecord.findUnique({ where: { userId: req.user.id } });
+    res.json({ ...req.user, unit, identitySourceRecord });
   }),
 );
 

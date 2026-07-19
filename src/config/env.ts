@@ -2,6 +2,8 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+const nodeEnv = process.env.NODE_ENV ?? "development";
+
 function required(name: string, fallback?: string): string {
   const value = process.env[name] ?? fallback;
   if (value === undefined) {
@@ -14,7 +16,7 @@ function required(name: string, fallback?: string): string {
 }
 
 export const env = {
-  nodeEnv: process.env.NODE_ENV ?? "development",
+  nodeEnv,
   port: Number(process.env.PORT ?? 4000),
   corsOrigins: (process.env.CORS_ORIGIN ?? "http://localhost:3000")
     .split(",")
@@ -37,6 +39,32 @@ export const env = {
   lateClusterPercent: Number(process.env.LATE_CLUSTER_PERCENT ?? 50),
   lateClusterDays: Number(process.env.LATE_CLUSTER_DAYS ?? 14),
   lowArtifactDensityPercent: Number(process.env.LOW_ARTIFACT_DENSITY_PERCENT ?? 70),
+
+  personnelProvider: process.env.PERSONNEL_PROVIDER ?? (nodeEnv === "production" ? "NOT_CONFIGURED" : "IPPS_A_STUB"),
+  profilePhotoProvider: process.env.PROFILE_PHOTO_PROVIDER ?? (nodeEnv === "production" ? "NOT_CONFIGURED" : "MICROSOFT_365_STUB"),
+  showDemoSourceLabels: (process.env.SHOW_DEMO_SOURCE_LABELS ?? (nodeEnv === "production" ? "false" : "true")) === "true",
+  supportFormParserMode: process.env.SUPPORT_FORM_PARSER_MODE ?? "REAL",
+  demoSupportFormSha256: process.env.DEMO_SUPPORT_FORM_SHA256 ?? "a10a1a969569de704a728027f9f992b88cf78b604eb090c874bc497693d49b1b",
 } as const;
 
 export const isProd = env.nodeEnv === "production";
+
+const supportedPersonnelProviders = new Set(["NOT_CONFIGURED", "IPPS_A_STUB"]);
+const supportedPhotoProviders = new Set(["NOT_CONFIGURED", "MICROSOFT_365_STUB"]);
+const supportedParserModes = new Set(["REAL", "DEMO_FIXTURE"]);
+
+if (!supportedPersonnelProviders.has(env.personnelProvider)) {
+  throw new Error(`PERSONNEL_PROVIDER=${env.personnelProvider} is not implemented.`);
+}
+
+if (!supportedPhotoProviders.has(env.profilePhotoProvider)) {
+  throw new Error(`PROFILE_PHOTO_PROVIDER=${env.profilePhotoProvider} is not implemented.`);
+}
+
+if (!supportedParserModes.has(env.supportFormParserMode)) {
+  throw new Error(`SUPPORT_FORM_PARSER_MODE=${env.supportFormParserMode} is not implemented.`);
+}
+
+if (isProd && (env.personnelProvider.endsWith("_STUB") || env.profilePhotoProvider.endsWith("_STUB") || env.supportFormParserMode === "DEMO_FIXTURE")) {
+  throw new Error("Demo stub providers and fixture parsing are disabled in production.");
+}

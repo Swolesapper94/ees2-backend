@@ -16,6 +16,42 @@ interface DashboardRecapEvent {
   detail: string;
 }
 
+type DemoPersonnelPayload = {
+  component?: string;
+  payGrade?: string;
+  branchOrMOS?: string;
+  dutyTitle?: string;
+  unitName?: string;
+  unitUic?: string;
+  officialEmail?: string;
+  assignmentStartDate?: string;
+  assignmentEndDate?: string | null;
+  acftStatus?: string;
+  acftScore?: number;
+  acftDate?: string;
+  heightInches?: number;
+  weightPounds?: number;
+  bodyCompositionStatus?: string;
+  bodyCompositionEffectiveDate?: string;
+  personnelSourceSystem?: string;
+  personnelSourceRecordId?: string;
+  personnelSyncStatus?: string;
+  personnelSynchronizedAt?: string;
+  isDemoIdentity?: boolean;
+  profilePhotoSourceSystem?: string;
+  profilePhotoUrl?: string;
+  profilePhotoSynchronizedAt?: string;
+};
+
+function payloadFrom(sourcePayload: unknown): DemoPersonnelPayload {
+  return sourcePayload && typeof sourcePayload === "object" ? sourcePayload as DemoPersonnelPayload : {};
+}
+
+function dutyTitleFor(user: { mos?: string | null; identitySourceRecord?: { dutyPosition: string | null; sourcePayload: unknown } | null }): string | null {
+  const payload = payloadFrom(user.identitySourceRecord?.sourcePayload);
+  return payload.dutyTitle ?? user.identitySourceRecord?.dutyPosition ?? user.mos ?? null;
+}
+
 function fallbackRecap(events: DashboardRecapEvent[], isFirstVisit: boolean): string {
   if (isFirstVisit) return "Welcome to your dashboard. Your current evaluation work and recent updates are ready to review.";
   if (events.length === 0) return "No new evaluation or support-form updates since your last login.";
@@ -83,6 +119,10 @@ async function buildDashboardRecap(userId: string, lastLoginAt: Date | null): Pr
 
   if (events.length === 0) return fallbackRecap(events, false);
 
+  if (env.personnelProvider === "IPPS_A_STUB") {
+    return fallbackRecap(events, false);
+  }
+
   try {
     const completion = await getOpenAI().chat.completions.create({
       model: env.openaiModel,
@@ -123,9 +163,26 @@ dashboardRouter.get(
     const userId = req.user!.id;
     const persistedUser = await prisma.user.findUnique({
       where: { id: userId },
-      select: { lastLoginAt: true },
+      include: { unit: true, identitySourceRecord: true },
     });
     const dashboardRecap = await buildDashboardRecap(userId, persistedUser?.lastLoginAt ?? null);
+
+    const now = new Date();
+    const activeAssignment = await prisma.ratingSchemeAssignment.findFirst({
+      where: {
+        ratedSoldierId: userId,
+        status: "PUBLISHED",
+        effectiveFrom: { lte: now },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }],
+      },
+      orderBy: { effectiveFrom: "desc" },
+      include: {
+        ratedSoldier: { include: { unit: true, identitySourceRecord: true } },
+        rater: { include: { unit: true, identitySourceRecord: true } },
+        seniorRater: { include: { unit: true, identitySourceRecord: true } },
+        supplementaryReviewer: { include: { unit: true, identitySourceRecord: true } },
+      },
+    });
 
     // ── Zone A — my own chain (I am the rated soldier) ────────────
     const myChain = await prisma.ratingChain.findFirst({
@@ -133,10 +190,10 @@ dashboardRouter.get(
       // Prefer the most recently effective relationship when legacy chains remain active.
       orderBy: [{ effectiveDate: "desc" }, { createdAt: "desc" }],
       include: {
-        ratedSoldier: true,
-        rater: true,
-        seniorRater: true,
-        reviewer: true,
+        ratedSoldier: { include: { unit: true, identitySourceRecord: true } },
+        rater: { include: { unit: true, identitySourceRecord: true } },
+        seniorRater: { include: { unit: true, identitySourceRecord: true } },
+        reviewer: { include: { unit: true, identitySourceRecord: true } },
         evaluations: {
           where: { disposition: "ACTIVE" },
           orderBy: { createdAt: "desc" },
@@ -230,6 +287,7 @@ dashboardRouter.get(
           soldier: chain.ratedSoldier,
           myRole: chain.raterId === userId ? "RATER" : "SENIOR_RATER",
           latestEval: eval_,
+          activeSupportFormId: chain.ratedSoldier.supportForms[0]?.id ?? null,
           activeSupportFormEntryCount:
             chain.ratedSoldier.supportForms[0]?._count.entries ?? 0,
           sectionCompletionPercent,
@@ -252,12 +310,47 @@ dashboardRouter.get(
         );
       });
 
+    const userPayload = payloadFrom(persistedUser?.identitySourceRecord?.sourcePayload);
+
     res.json({
-      myUser: req.user,
+      myUser: persistedUser
+        ? {
+            ...persistedUser,
+            personnelProfile: {
+              ...userPayload,
+              rank: persistedUser.rank,
+              mos: persistedUser.mos,
+              unitName: userPayload.unitName ?? persistedUser.unit?.name ?? null,
+              unitUic: userPayload.unitUic ?? persistedUser.unit?.uic ?? null,
+              personnelSource: "IPPS-A",
+              sourceLabel: env.showDemoSourceLabels ? "Demo stub" : null,
+              sourceStatus: persistedUser.identitySourceRecord?.syncStatus ?? "NOT_CONFIGURED",
+              lastRefreshed: persistedUser.identitySourceRecord?.lastSynchronizedAt ?? null,
+              profilePhotoUrl: userPayload.profilePhotoUrl ?? persistedUser.profilePictureUrl ?? null,
+              profilePhotoSource: userPayload.profilePhotoSourceSystem === "MICROSOFT_365_STUB" ? "Microsoft 365" : null,
+              profilePhotoSourceLabel: env.showDemoSourceLabels ? "demo stub" : null,
+            },
+          }
+        : req.user,
       dashboardRecap,
       myChain: myChain
         ? {
             ...myChain,
+            ratedSoldier: activeAssignment?.ratedSoldier
+              ? { ...activeAssignment.ratedSoldier, dutyTitle: dutyTitleFor(activeAssignment.ratedSoldier) }
+              : { ...myChain.ratedSoldier, dutyTitle: dutyTitleFor(myChain.ratedSoldier) },
+            rater: activeAssignment?.rater
+              ? { ...activeAssignment.rater, dutyTitle: dutyTitleFor(activeAssignment.rater) }
+              : { ...myChain.rater, dutyTitle: dutyTitleFor(myChain.rater) },
+            seniorRater: activeAssignment?.seniorRater
+              ? { ...activeAssignment.seniorRater, dutyTitle: dutyTitleFor(activeAssignment.seniorRater) }
+              : { ...myChain.seniorRater, dutyTitle: dutyTitleFor(myChain.seniorRater) },
+            reviewer: activeAssignment?.supplementaryReviewer
+              ? { ...activeAssignment.supplementaryReviewer, dutyTitle: dutyTitleFor(activeAssignment.supplementaryReviewer) }
+              : myChain.reviewer ? { ...myChain.reviewer, dutyTitle: dutyTitleFor(myChain.reviewer) } : null,
+            assignmentSource: activeAssignment ? "RATING_SCHEME_ASSIGNMENT" : "LEGACY_RATING_CHAIN",
+            assignmentEffectiveDate: activeAssignment?.effectiveFrom ?? myChain.effectiveDate,
+            activeSupportFormId: myActiveSupportForm?.id ?? null,
             activeSupportFormEntryCount: myActiveSupportForm?._count.entries ?? 0,
             latestEval: myChain.evaluations[0] ?? null,
             ...resolveFormType(myChain.ratedSoldier.rank),

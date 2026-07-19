@@ -323,10 +323,18 @@ enum SupportFormUploadStatus {
   EXTRACTING // Stage 1 in progress
   PENDING_PARSE // Stage 1 done, queued for Stage 2 parse
   PARSING // Stage 2 in progress
-  PENDING_BULLETS // Stage 2 done, queued for Stage 3 generation
+  REVIEW_REQUIRED // Stage 2 done; extracted facts require human review before use
+  PENDING_BULLETS // Human-reviewed facts ready for Stage 3 generation
   GENERATING // Stage 3 in progress
   COMPLETE // All 3 stages done
   FAILED // Any stage errored
+}
+
+enum ExtractedFactReviewStatus {
+  PENDING_REVIEW
+  ACCEPTED
+  EDITED
+  REJECTED
 }
 
 enum AIBulletStatus {
@@ -1490,6 +1498,8 @@ model SupportFormUpload {
   uploadedById String
   uploadedBy   User                    @relation("UploadedForms", fields: [uploadedById], references: [id])
   fileUrl      String // Supabase Storage URL
+  originalFileName String?
+  fileSha256   String?
   fileType     String // "pdf" | "image"
   parseStatus  SupportFormUploadStatus @default(PENDING_EXTRACT)
   parseError   String?
@@ -1514,6 +1524,17 @@ model AIExtractedEntry {
   impact       String?
   date         String?
   context      String?
+  factCategory String?
+  quantityOrMetric String?
+  sourcePage   Int?
+  confidence   AIBulletConfidence @default(MEDIUM)
+  sourceDocumentName String?
+  originalExtractedText String?
+  reviewedText String?
+  reviewStatus ExtractedFactReviewStatus @default(PENDING_REVIEW)
+  reviewedById String?
+  reviewedAt   DateTime?
+  extractionMethod String?
   createdAt    DateTime          @default(now())
 
   @@map("ai_extracted_entries")

@@ -13,6 +13,7 @@ import multer from "multer";
 import { z } from "zod";
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { asyncHandler, HttpError } from "@/middleware/error";
 import { requireAuth } from "@/middleware/auth";
@@ -21,6 +22,7 @@ import {
   runSupportFormPipeline,
   generateBulletsFromScratch,
   generateBulletsFromEntries,
+  generateBulletsFromReviewedUpload,
 } from "@/lib/ai/support-form-pipeline";
 import { requireEvalChainRole, requireEntriesBelongToEval } from "@/lib/utils/chain-auth";
 import { checkUnsupportedFacts } from "@/lib/ai/unsupported-fact-check";
@@ -77,6 +79,24 @@ const fromEntriesSchema = z.object({
   entryIds: z.array(z.string().min(1)).min(1),
 });
 
+const reviewedFactsGenerationSchema = z.object({
+  sectionKey: z.enum([
+    "CHARACTER",
+    "PRESENCE",
+    "INTELLECT",
+    "LEADS",
+    "DEVELOPS",
+    "ACHIEVES",
+  ]).optional(),
+});
+
+const extractedFactReviewSchema = z.object({
+  action: z.enum(["ACCEPTED", "EDITED", "REJECTED"]),
+  reviewedText: z.string().trim().min(5).max(2000).optional(),
+}).refine((body) => body.action !== "EDITED" || Boolean(body.reviewedText), {
+  message: "reviewedText is required when action is EDITED.",
+});
+
 async function loadGenerationContext(evaluationId: string) {
   const evaluation = await prisma.evaluation.findUnique({
     where: { id: evaluationId },
@@ -111,6 +131,7 @@ supportFormUploadsRouter.post(
   asyncHandler(async (req, res) => {
     const { evalId } = req.params;
     if (!evalId) throw new HttpError(400, "Missing evalId.");
+    if (!req.user) throw new HttpError(401, "Not authenticated");
     const file = req.file;
     if (!file) throw new HttpError(400, "No file provided.");
 
@@ -122,6 +143,7 @@ supportFormUploadsRouter.post(
       },
     });
     if (!evaluation) throw new HttpError(404, "Evaluation not found.");
+    await requireEvalChainRole(evalId, req.user, ["SOLDIER", "RATER", "SENIOR_RATER", "REVIEWER"]);
 
     // Upload file to Supabase Storage
     const fileExt = file.originalname.split(".").pop() ?? "bin";
@@ -194,12 +216,15 @@ supportFormUploadsRouter.post(
     }
 
     // Create upload record
-    const uploadedById = (req as unknown as { user: { id: string } }).user?.id ?? "dev";
+    const uploadedById = req.user.id;
+    const fileSha256 = crypto.createHash("sha256").update(file.buffer).digest("hex");
     const uploadRecord = await prisma.supportFormUpload.create({
       data: {
         evaluationId: evalId,
         uploadedById,
         fileUrl,
+        originalFileName: file.originalname,
+        fileSha256,
         fileType,
         parseStatus: "PENDING_EXTRACT",  // Always queue for pipeline, dev-mode triggers will be logged there
       },
@@ -215,6 +240,8 @@ supportFormUploadsRouter.post(
       evaluationId: evalId,
       fileUrl,
       fileType,
+      originalFileName: file.originalname,
+      fileSha256,
       soldierInfo: {
         rank: rankStr,
         mos: soldier.mos,
@@ -267,6 +294,8 @@ supportFormUploadsRouter.post(
         evaluationId: evalId,
         uploadedById: req.user.id,
         fileUrl: latestUpload.fileUrl,
+        originalFileName: latestUpload.originalFileName,
+        fileSha256: latestUpload.fileSha256,
         fileType: latestUpload.fileType,
         parseStatus: "PENDING_EXTRACT",
       },
@@ -288,6 +317,8 @@ supportFormUploadsRouter.post(
       evaluationId: evalId,
       fileUrl: reprocessedUpload.fileUrl,
       fileType: reprocessedUpload.fileType,
+      originalFileName: reprocessedUpload.originalFileName ?? undefined,
+      fileSha256: reprocessedUpload.fileSha256 ?? undefined,
       soldierInfo: {
         rank: String(soldier.rank),
         mos: soldier.mos,
@@ -368,12 +399,119 @@ supportFormUploadsRouter.get(
     res.json({
       hasUpload: true,
       uploadId: latestUpload.id,
+      originalFileName: latestUpload.originalFileName,
       fileUrl: latestUpload.fileUrl,
       fileType: latestUpload.fileType,
       parseStatus: latestUpload.parseStatus,
       parseError: latestUpload.parseError,
       extractedEntries: latestUpload.extractedEntries,
       bulletSuggestions: latestUpload.bulletSuggestions,
+    });
+  }),
+);
+
+// PATCH /api/support-form-uploads/extracted-entries/:entryId
+// Human review gate for uploaded-document source facts. Parsed facts do not
+// become usable evidence until accepted or edited by an authorized user.
+supportFormUploadsRouter.patch(
+  "/extracted-entries/:entryId",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    const { entryId } = req.params;
+    if (!entryId) throw new HttpError(400, "Missing entryId.");
+    const body = extractedFactReviewSchema.parse(req.body);
+
+    const entry = await prisma.aIExtractedEntry.findUnique({
+      where: { id: entryId },
+      include: { upload: true },
+    });
+    if (!entry) throw new HttpError(404, "Extracted fact not found.");
+    await requireEvalChainRole(entry.evaluationId, req.user, ["SOLDIER", "RATER", "SENIOR_RATER", "REVIEWER"]);
+
+    const reviewedText = body.action === "REJECTED"
+      ? null
+      : body.action === "EDITED"
+        ? body.reviewedText!
+        : entry.originalExtractedText ?? [entry.what, entry.impact, entry.context].filter(Boolean).join(" ").trim();
+
+    const updated = await prisma.aIExtractedEntry.update({
+      where: { id: entry.id },
+      data: {
+        reviewStatus: body.action as never,
+        reviewedText,
+        reviewedById: req.user.id,
+        reviewedAt: new Date(),
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        evaluationId: entry.evaluationId,
+        actorId: req.user.id,
+        action: `EXTRACTED_FACT_${body.action}`,
+        entityType: "AIExtractedEntry",
+        entityId: entry.id,
+        metadata: {
+          uploadId: entry.uploadId,
+          sourceDocumentName: entry.sourceDocumentName ?? entry.upload.originalFileName,
+          sourcePage: entry.sourcePage,
+        },
+      },
+    });
+
+    res.json(updated);
+  }),
+);
+
+// POST /api/support-form-uploads/:evalId/generate-from-reviewed-facts
+// Explicitly converts accepted/edited uploaded-document facts into rater-
+// reviewable AI suggestions. Parsing alone never creates final content.
+supportFormUploadsRouter.post(
+  "/:evalId/generate-from-reviewed-facts",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { evalId } = req.params;
+    if (!evalId) throw new HttpError(400, "Missing evalId.");
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    const body = reviewedFactsGenerationSchema.parse(req.body ?? {});
+    await requireEvalChainRole(evalId, req.user, ["RATER", "SENIOR_RATER"]);
+
+    const latestUpload = await prisma.supportFormUpload.findFirst({
+      where: { evaluationId: evalId },
+      orderBy: { createdAt: "desc" },
+      include: { extractedEntries: true },
+    });
+    if (!latestUpload) throw new HttpError(404, "Uploaded support form not found.");
+
+    const acceptedCount = latestUpload.extractedEntries.filter((entry) => ["ACCEPTED", "EDITED"].includes(entry.reviewStatus) && (!body.sectionKey || entry.section === body.sectionKey)).length;
+    if (acceptedCount === 0) throw new HttpError(409, "Accept or edit at least one extracted fact before generating suggestions.");
+
+    const soldierInfo = await loadGenerationContext(evalId);
+    await generateBulletsFromReviewedUpload({
+      uploadId: latestUpload.id,
+      evaluationId: evalId,
+      sectionKey: body.sectionKey,
+      soldierInfo,
+    });
+
+    const state = await prisma.supportFormUpload.findUnique({
+      where: { id: latestUpload.id },
+      include: {
+        extractedEntries: { orderBy: { section: "asc" } },
+        bulletSuggestions: { orderBy: [{ sectionKey: "asc" }, { rank: "asc" }] },
+      },
+    });
+    res.json({
+      hasUpload: true,
+      uploadId: state?.id,
+      originalFileName: state?.originalFileName,
+      fileUrl: state?.fileUrl,
+      fileType: state?.fileType,
+      parseStatus: state?.parseStatus,
+      parseError: state?.parseError,
+      extractedEntries: state?.extractedEntries ?? [],
+      bulletSuggestions: state?.bulletSuggestions ?? [],
     });
   }),
 );

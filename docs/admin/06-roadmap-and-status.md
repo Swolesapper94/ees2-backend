@@ -88,10 +88,17 @@ This pass did not change the overall production-readiness posture (see §8 of [0
 
 The compliance foundation is implemented additively. Legacy `RatingChain` relationships remain available for compatibility and are still used by portions of the dashboard and older records. New regulated workflows can use published `RatingSchemeAssignment` records and immutable evaluation snapshots. The existing demo data was quarantined rather than rewritten or deleted because it contains duplicate form consumption and rating relationships that do not satisfy the new validation rules.
 
+### 2c. PM-facing fresh-start demo route
+
+The ideal program-manager demo should not rely on already-polished seeded bullets. Use [16 - PM Demo Route: Fresh Evidence to AI Bullets](./16-pm-demo-route.md) to rehearse a fresh route where a Soldier adds or uploads new support-form evidence, the rater generates AI suggestions from that evidence, and the demo proves human review, source provenance, unsupported-fact checks, workflow sequencing, and final-form controls.
+
+The recommended live path is the Davis NCOER workflow because it exercises the complete authoring and review chain. The Torres OER path remains valuable for showing officer form selection and the MAJ senior-rater topology, but should be treated as a boundary demo until OER authoring reaches NCOER parity.
+
 ---
 
 ## 3. In progress / partial (⏳)
 
+- ⏳ **Rater Profile & Rater Tendency model (demo-build signed)** — [document 15](./15-rater-profile-and-tendency-model.md) defines the missing AR 623-3 §3-11 rater-side instruments as projected decision support. Section 12 now authorizes the demo scope: seeded baselines, no separate profile-credit model, deterministic OER LOCK mechanics without CAC binding, informational restart state only, and an explicit `isRetiredRecalled` field before projection code lands.
 - ⏳ **Support-form guided wizard (frontend)** — the multi-step stepper (Part I → Part III → guided goal-setting → review) that fully replaces the simpler entry flow; backend + goal-prompt scaffolding are done.
 - ⏳ **Support-form PDF template** — a react-pdf DA 2166-9-1A / 67-10-1A template branching on `evalCategory`.
 - ⏳ **Zone A CTA gating (frontend)** — disabling "Initiate My Evaluation" until the support form is complete, with a visible missing-items checklist (the backend gate is already authoritative).
@@ -116,7 +123,8 @@ Roughly in priority order:
 6. 🔜 **Broader form coverage** — deepen the officer (67-10 series) builder to parity with the NCO builder.
 7. 🔜 **Acceptance and route tests** — add explicit positive and negative coverage for assignment eligibility, snapshot-only review access, support-form locking/consumption, and quarantine exclusion.
 8. 🔜 **Broader audit coverage** — extend the audit log to every entry update and lifecycle change, then verify the full regulatory audit report end to end.
-9. 🔜 **Accreditation track** — ATO scoping, penetration testing, and DoD security control assessment for a production pilot.
+9. 🔜 **Rater Profile & Rater Tendency implementation** — implement the document 15 signed demo scope: Prisma models, `isRetiredRecalled` field, projection service, rater-only/tendency visibility routes, box-check snapshot transaction, deterministic OER LOCK mechanics, and demo fixtures without command visibility or enforcement gates.
+10. 🔜 **Accreditation track** — ATO scoping, penetration testing, and DoD security control assessment for a production pilot.
 
 ---
 

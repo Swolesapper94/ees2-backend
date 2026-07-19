@@ -18,6 +18,7 @@ import { authorizeEvaluationView, canEditEvaluationSection, canSignEvaluationAs,
 import { authorizeDelegatedAction } from "@/lib/access-assistance/authorization";
 import { srMqCapPercentFor, isNcoGrade } from "@/lib/utils/grade";
 import { computeFinalFormContentHash, finalReviewRatedSoldierId, invalidateFinalFormReviews, loadFinalFormReviewData } from "@/lib/final-form-review";
+import { env } from "@/config/env";
 
 export const evaluationsRouter = Router();
 
@@ -47,6 +48,30 @@ const createEvalSchema = z.object({
   ratedMonths: z.number().int().nonnegative(),
   reasonForSubmission: z.string().min(1),
 });
+
+type DemoPersonnelPayload = {
+  component?: string;
+  payGrade?: string;
+  branchOrMOS?: string;
+  dutyTitle?: string;
+  unitName?: string;
+  unitUic?: string;
+  assignmentStartDate?: string;
+  assignmentEndDate?: string | null;
+  acftStatus?: string;
+  acftScore?: number;
+  acftDate?: string;
+  heightInches?: number;
+  weightPounds?: number;
+  bodyCompositionStatus?: string;
+  bodyCompositionEffectiveDate?: string;
+  personnelSourceSystem?: string;
+  personnelSynchronizedAt?: string;
+};
+
+function payloadFrom(sourcePayload: unknown): DemoPersonnelPayload {
+  return sourcePayload && typeof sourcePayload === "object" ? sourcePayload as DemoPersonnelPayload : {};
+}
 
 const updateSectionSchema = z.object({
   ratingBinary: z.string().nullish(),
@@ -295,7 +320,7 @@ evaluationsRouter.get(
         signatures: true,
         ratingSnapshot: true,
         ratingChain: {
-          include: { ratedSoldier: true, rater: true, seniorRater: true, reviewer: true },
+          include: { ratedSoldier: { include: { unit: true, identitySourceRecord: true } }, rater: true, seniorRater: true, reviewer: true },
         },
         supportForm: { include: { entries: { include: { artifacts: true } } } },
       },
@@ -335,8 +360,20 @@ evaluationsRouter.get(
       total,
       mqPct: total > 0 ? Math.round((mqCount / total) * 100) : 0,
     };
+    const ratedSoldierPayload = payloadFrom(evaluation.ratingChain.ratedSoldier.identitySourceRecord?.sourcePayload);
+    const ratedSoldierPersonnelProfile = {
+      ...ratedSoldierPayload,
+      rank: evaluation.ratingChain.ratedSoldier.rank,
+      mos: evaluation.ratingChain.ratedSoldier.mos,
+      unitName: ratedSoldierPayload.unitName ?? evaluation.ratingChain.ratedSoldier.unit?.name ?? null,
+      unitUic: ratedSoldierPayload.unitUic ?? evaluation.ratingChain.ratedSoldier.unit?.uic ?? null,
+      personnelSource: "IPPS-A",
+      sourceLabel: env.showDemoSourceLabels ? "Demo stub" : null,
+      sourceStatus: evaluation.ratingChain.ratedSoldier.identitySourceRecord?.syncStatus ?? "NOT_CONFIGURED",
+      lastRefreshed: evaluation.ratingChain.ratedSoldier.identitySourceRecord?.lastSynchronizedAt ?? null,
+    };
 
-    res.json({ ...evaluation, srMqProfile });
+    res.json({ ...evaluation, srMqProfile, ratedSoldierPersonnelProfile });
   }),
 );
 
@@ -663,9 +700,16 @@ evaluationsRouter.post(
     const body = signSchema.parse(req.body);
     if (!req.user) throw new HttpError(401, "Not authenticated");
 
+    const evaluation = await prisma.evaluation.findUnique({
+      where: { id: req.params.id },
+      include: { ratingChain: true },
+    });
+    if (!evaluation) throw new HttpError(404, "Evaluation not found");
+    const access = await authorizeEvaluationView(req.user, evaluation, evaluation.ratingChain);
+    if (!access.allowed) throw new HttpError(404, "Evaluation not found");
+
     // ── AUTHORIZATION: caller must actually hold the role they're signing as ──
     // (previously any authenticated user could sign as any role on any eval).
-    const evaluation = await requireEvalChainRole(req.params.id!, req.user, [body.role]);
     if (!canSignEvaluationAs(req.user, body.role, evaluation.ratingChain)) {
       throw new HttpError(403, "You may only sign using your assigned rating role.");
     }

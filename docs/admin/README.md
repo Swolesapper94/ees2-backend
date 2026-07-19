@@ -45,6 +45,8 @@ Use the documents below according to their purpose. This matters when preparing 
 | 12 | [Customer Manual Acceptance Test Plan](./12-customer-manual-acceptance-test-plan.md) | Customer evaluators, test leads | Checkbox-driven persona walkthrough, real support-form ingestion validation, and results handoff template. |
 | 13 | [Access and Assistance Implementation Note](./13-access-and-assistance-implementation-note.md) | Security reviewers, administrators | Legacy delegate inventory, compatibility migration, and scoped assistance design. |
 | 14 | [Supabase PostgreSQL Database Schema Reference](./14-database-schema-reference.md) | Database administrators, engineers, security reviewers | What tables, columns, enums, relationships, indexes, vector fields, and Supabase boundaries make up the database schema? |
+| 15 | [Rater Profile & Rater Tendency Model](./15-rater-profile-and-tendency-model.md) | Product, engineering, HRC-demo reviewers | Demo-build-authorized spec for the missing AR 623-3 section 3-11 rater-side instruments. |
+| 16 | [PM Demo Route: Fresh Evidence to AI Bullets](./16-pm-demo-route.md) | Program leadership, demo operators, PM reviewers | How should a fresh-start demo show AI-generated NCOER/OER bullets from platform-captured or uploaded evidence? |
 
 ---
 
@@ -62,4 +64,4 @@ The Army's evaluation process is high-stakes (it drives promotions, assignments,
 
 ---
 
-*Documentation maintained by the EES 2.0 team. Last substantive update: 2026-07-17 (knowledge-base cleanup: restored remediation and acceptance-plan references, added source-of-truth hierarchy, and reconciled database documentation with the current Prisma schema).*
+*Documentation maintained by the EES 2.0 team. Last substantive update: 2026-07-18 (added PM-facing fresh-start AI bullet demo route, plus Rater Profile & Rater Tendency demo-build sign-off).*

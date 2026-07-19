@@ -15,6 +15,7 @@ import { extractTextFromImage, callOpenAIForJson, generateBullets, sanitizeBulle
 import { extractPdfText, sanitizeTextForStorage } from "@/lib/pdf/extract-text";
 import { searchRegulations } from "@/lib/regulations/search";
 import { systemPromptForFormType } from "./prompts";
+import { env } from "@/config/env";
 
 // ─── Section definitions for regulation-aware bullet generation ───────────────
 
@@ -192,12 +193,63 @@ export interface ParsedEntry {
   impact?: string;
   date?: string;
   context?: string;
+  factCategory?: string;
+  quantityOrMetric?: string;
+  sourcePage?: number;
+  confidence?: "HIGH" | "MEDIUM" | "LOW";
 }
+
+const DEMO_SUPPORT_FORM_FIXTURE_NAME = "SGT_Davis_Demo_Support_Form.pdf";
+
+const DEMO_SUPPORT_FORM_ENTRIES: ParsedEntry[] = [
+  {
+    section: "LEADS",
+    what: "Led a nine-Soldier team through four battalion live-fire rehearsal iterations with zero safety violations.",
+    impact: "Corrected three range-control deficiencies and trained two junior team leaders on PCC/PCI standards.",
+    date: "12 June 2026",
+    factCategory: "Leadership",
+    quantityOrMetric: "9 Soldiers; 4 iterations; 0 safety violations; 3 deficiencies; 2 junior leaders",
+    sourcePage: 1,
+    confidence: "HIGH",
+  },
+  {
+    section: "DEVELOPS",
+    what: "Conducted six structured training sessions for twelve Soldiers from March through June 2026.",
+    impact: "Ten Soldiers improved individual task evaluation scores and two junior leaders were certified to lead future training.",
+    date: "March-June 2026",
+    factCategory: "Training",
+    quantityOrMetric: "6 sessions; 12 Soldiers; 10 improved; 2 certified",
+    sourcePage: 1,
+    confidence: "HIGH",
+  },
+  {
+    section: "ACHIEVES",
+    what: "Reorganized the team's equipment accountability process.",
+    impact: "Reduced monthly inventory reconciliation time from four hours to ninety minutes and resolved eleven unmatched serial-number records.",
+    date: "2026 rating period",
+    factCategory: "Results",
+    quantityOrMetric: "4 hours to 90 minutes; 11 records resolved",
+    sourcePage: 1,
+    confidence: "HIGH",
+  },
+  {
+    section: "INTELLECT",
+    what: "Developed a standardized range packet and pre-execution checklist.",
+    impact: "Checklist was adopted by three squads during the June training cycle.",
+    date: "June 2026",
+    factCategory: "Process improvement",
+    quantityOrMetric: "3 squads",
+    sourcePage: 1,
+    confidence: "HIGH",
+  },
+];
 
 async function runStage2(
   uploadId: string,
   evaluationId: string,
   rawExtract: string,
+  sourceDocumentName?: string,
+  extractionMethod = "PDF_TEXT",
 ): Promise<ParsedEntry[]> {
   await prisma.supportFormUpload.update({
     where: { id: uploadId },
@@ -208,11 +260,13 @@ async function runStage2(
     "CHARACTER", "PRESENCE", "INTELLECT", "LEADS", "DEVELOPS", "ACHIEVES",
   ]);
 
-  const parsed = await callOpenAIForJson<ParsedEntry[]>({
-    systemPrompt: STAGE2_SYSTEM_PROMPT,
-    userPrompt: rawExtract,
-    maxTokens: 3000,
-  });
+  const parsed = env.supportFormParserMode === "DEMO_FIXTURE"
+    ? DEMO_SUPPORT_FORM_ENTRIES
+    : await callOpenAIForJson<ParsedEntry[]>({
+        systemPrompt: STAGE2_SYSTEM_PROMPT,
+        userPrompt: rawExtract,
+        maxTokens: 3000,
+      });
 
   // Filter to valid sections only
   const valid = parsed.filter((e) => validSections.has(e.section?.toUpperCase()));
@@ -227,12 +281,20 @@ async function runStage2(
       impact: e.impact ?? null,
       date: e.date ?? null,
       context: e.context ?? null,
+      factCategory: e.factCategory ?? null,
+      quantityOrMetric: e.quantityOrMetric ?? null,
+      sourcePage: e.sourcePage ?? null,
+      confidence: (e.confidence ?? "MEDIUM") as never,
+      sourceDocumentName: sourceDocumentName ?? null,
+      originalExtractedText: [e.what, e.impact, e.context].filter(Boolean).join(" ").trim() || e.what || "",
+      reviewStatus: "PENDING_REVIEW" as never,
+      extractionMethod,
     })),
   });
 
   await prisma.supportFormUpload.update({
     where: { id: uploadId },
-    data: { parseStatus: "PENDING_BULLETS" },
+    data: { parseStatus: "REVIEW_REQUIRED" },
   });
 
   return valid;
@@ -278,19 +340,38 @@ export async function runStage3(
   uploadId: string,
   evaluationId: string,
   soldierInfo: { rank: string; mos: string; dutyTitle: string; formType: string },
+  targetSectionKey?: string,
 ): Promise<void> {
   await prisma.supportFormUpload.update({
     where: { id: uploadId },
     data: { parseStatus: "GENERATING" },
   });
 
-  const sections = ["CHARACTER", "PRESENCE", "INTELLECT", "LEADS", "DEVELOPS", "ACHIEVES"];
+  const sections = targetSectionKey ? [targetSectionKey] : ["CHARACTER", "PRESENCE", "INTELLECT", "LEADS", "DEVELOPS", "ACHIEVES"];
 
   // Get the IDs of the stored AIExtractedEntry rows (for sourceEntryIds linking)
   const storedEntries = await prisma.aIExtractedEntry.findMany({
-    where: { uploadId },
-    select: { id: true, section: true, what: true, impact: true, date: true, context: true },
+    where: { uploadId, reviewStatus: { in: ["ACCEPTED", "EDITED"] } },
+    select: {
+      id: true,
+      section: true,
+      what: true,
+      impact: true,
+      date: true,
+      context: true,
+      reviewedText: true,
+      originalExtractedText: true,
+      sourceDocumentName: true,
+      sourcePage: true,
+      reviewStatus: true,
+      reviewedById: true,
+      reviewedAt: true,
+      extractionMethod: true,
+    },
   });
+  if (storedEntries.length === 0) {
+    throw new Error("No human-reviewed extracted facts are available for bullet generation.");
+  }
   let persistedSuggestionCount = 0;
   const generationFailures: string[] = [];
 
@@ -314,8 +395,9 @@ ARMY REGULATION CONTEXT (for accuracy):
 ${regContext}`;
 
     for (const [entryIndex, entry] of sectionEntries.entries()) {
+      const reviewedFact = entry.reviewedText ?? entry.originalExtractedText ?? entry.what;
       const evidence = [
-        `What happened: ${entry.what}`,
+        `What happened: ${reviewedFact}`,
         ...(entry.impact ? [`Impact: ${entry.impact}`] : []),
         ...(entry.date ? [`Date or period: ${entry.date}`] : []),
         ...(entry.context ? [`Context: ${entry.context}`] : []),
@@ -375,7 +457,19 @@ Output JSON only. No preamble. No markdown. Format:
           rank: entryIndex + 1,
           status: "PENDING_REVIEW" as never,
           sourceEntryIds: [entry.id],
-          sourceSnapshot: [{ entryId: entry.id, rawText: evidence, artifactCaptions: [] }],
+          sourceSnapshot: [{
+            entryId: entry.id,
+            rawText: evidence,
+            artifactCaptions: [],
+            sourceDocumentId: uploadId,
+            sourceDocumentName: entry.sourceDocumentName,
+            sourcePage: entry.sourcePage,
+            originalExtractedText: entry.originalExtractedText,
+            reviewedText: entry.reviewedText,
+            reviewedBy: entry.reviewedById,
+            reviewedAt: entry.reviewedAt,
+            extractionMethod: entry.extractionMethod,
+          }],
         },
       });
       persistedSuggestionCount += created ? 1 : 0;
@@ -399,6 +493,8 @@ export interface PipelineArgs {
   evaluationId: string;
   fileUrl: string;
   fileType: string;
+  originalFileName?: string;
+  fileSha256?: string;
   soldierInfo: {
     rank: string;
     mos: string;
@@ -414,10 +510,23 @@ export interface PipelineArgs {
  */
 export async function runSupportFormPipeline(args: PipelineArgs): Promise<void> {
   try {
+    if (env.supportFormParserMode === "DEMO_FIXTURE") {
+      if (args.originalFileName !== DEMO_SUPPORT_FORM_FIXTURE_NAME) {
+        throw new Error(`Demo fixture mode only accepts ${DEMO_SUPPORT_FORM_FIXTURE_NAME}.`);
+      }
+      if (env.demoSupportFormSha256 && args.fileSha256 !== env.demoSupportFormSha256) {
+        throw new Error("Uploaded demo support form does not match the approved fixture hash.");
+      }
+    }
     const rawExtract = await runStage1(args.uploadId, args.fileUrl, args.fileType);
     await prefillEvaluationDutyDescription(args.evaluationId, rawExtract);
-    const entries = await runStage2(args.uploadId, args.evaluationId, rawExtract);
-    await runStage3(args.uploadId, args.evaluationId, args.soldierInfo);
+    await runStage2(
+      args.uploadId,
+      args.evaluationId,
+      rawExtract,
+      args.originalFileName,
+      args.fileType === "pdf" ? "PDF_TEXT" : "IMAGE_VISION",
+    );
   } catch (err) {
     console.error("[pipeline] Error in support form pipeline:", err);
     await prisma.supportFormUpload.update({
@@ -428,6 +537,19 @@ export async function runSupportFormPipeline(args: PipelineArgs): Promise<void> 
       },
     });
   }
+}
+
+export async function generateBulletsFromReviewedUpload(args: {
+  uploadId: string;
+  evaluationId: string;
+  sectionKey?: string;
+  soldierInfo: { rank: string; mos: string; dutyTitle: string; formType: string };
+}): Promise<void> {
+  await prisma.supportFormUpload.update({
+    where: { id: args.uploadId },
+    data: { parseStatus: "PENDING_BULLETS", parseError: null },
+  });
+  await runStage3(args.uploadId, args.evaluationId, args.soldierInfo, args.sectionKey);
 }
 
 // ─── From-Scratch bullet generation (no support form) ────────────────────────
