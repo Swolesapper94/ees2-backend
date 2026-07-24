@@ -203,7 +203,7 @@ async function main() {
     loadUser("marcus.johnson@army.mil"),
     loadUser("james.davis@army.mil"),
     loadUser("jordan.lee@army.mil"),
-    prisma.unit.findUniqueOrThrow({ where: { uic: "DEV-505" }, select: { id: true } }),
+    prisma.unit.findUniqueOrThrow({ where: { uic: "W8A0AA" }, select: { id: true } }),
   ]);
 
   // Three accepted reports where CPT Smith is rater populate HRC trend,
@@ -316,7 +316,7 @@ async function main() {
 
   // Current active chain is intentionally due within 30 days and has a
   // partially complete counseling history so the dashboard has active work.
-  const currentStart = daysFromNow(-340);
+  const currentStart = daysFromNow(-90);
   const currentEnd = daysFromNow(25);
   const currentChain = await prisma.ratingChain.upsert({
     where: { id: "dashboard-chain-johnson-current" },

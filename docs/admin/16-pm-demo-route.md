@@ -10,12 +10,13 @@ The demo should prove one claim:
 
 **MERIT reduces leader administrative burden by starting with authoritative personnel data, capturing performance throughout the rating period, and turning documented evidence into reviewable, regulation-aware evaluations.**
 
-The PM should leave with four takeaways:
+The PM should leave with five takeaways:
 
 1. The Soldier should not re-enter personnel data the Army already maintains; MERIT should validate and display authoritative profile and assignment context up front.
 2. Soldiers and leaders can build the evaluation throughout the rating period instead of rebuilding it from memory at the end.
 3. AI is useful because it drafts from captured evidence, not because it invents polished language.
 4. The workflow creates a defensible record: source data, source evidence, AI suggestion, human review decision, final content, consistency checks, signatures, and export history.
+5. Every claim traces back to something concrete: an approved goal for intent, and an accomplishment plus artifact for proof - a goal is context, never evidence by itself.
 
 ### 1.1 Implementation Map
 
@@ -26,7 +27,10 @@ The PM should leave with four takeaways:
 | Profile avatar | `User.profilePictureUrl`, `UserAvatar`, `DashboardGreeting`, and `ProfileMenu` already exist | Reuse them with local synthetic `/demo-avatars/*.webp` assets and initials fallback |
 | Support-form upload | `SupportFormUpload`, `/api/support-form-uploads/:evalId`, and `SupportFormUploadPanel` already exist | Reuse the upload route and panel; label the action `Upload existing support form` |
 | Parsing | `support-form-pipeline.ts` already performs PDF text extraction, image extraction, typed parsing, and bullet generation | Insert a human-review gate before reviewed extracted facts can generate suggestions |
-| Demo seeds | Existing dev personas and IDs already exist | Update existing records in place; do not duplicate Davis, Johnson, Williams, Smith, or Torres |
+| Goal-evidence traceability | `Goal`, `GoalEntryLink`, and `SupportFormEntryArtifact` models, goal approval, and entry linking already exist | AI generation (`generateBulletsFromEntries` and the uploaded-document path) now injects approved linked goals as non-factual context alongside accomplishment text and artifact captions; the rater's evidence picker now shows a goal badge on linked accomplishments |
+| Rater observations and counseling release | `PerformanceObservation` is a first-class rater-owned record linked to a support form, optional approved goal, and counseling session | Only the assigned rater may create/edit/delete/release observations; the rated Soldier sees only observations released through counseling, and AI provenance uses typed observation references rather than entry IDs |
+| Official counseling record boundary | Counseling workspace composes goals, evidence, observations, and follow-up for one real counseling event | MERIT records a short traceability outcome plus an optional link/reference to the completed official DA Form 4856 or unit record; it does not generate a second official counseling narrative or store an official DA 4856 in this release |
+| Demo seeds | Existing dev personas and IDs already exist | Davis's support form now includes 3 approved goals (Presence, Leads, Develops), each linked to an accomplishment, plus 2 captioned demo artifacts; update existing records in place, do not duplicate Davis, Johnson, Williams, Smith, or Torres |
 | Assignment/rating chain | Rating-chain and rating-scheme assignment services already exist | Dashboard display should prefer the effective published assignment and fall back to legacy chain only when needed |
 
 ---
@@ -37,11 +41,23 @@ Use the **Davis NCOER path** for the main demo because it exercises the complete
 
 Use the **Torres OER path** only as a short boundary segment to show officer form selection, assignment snapshots, and MAJ senior-rater topology. Do not make the officer path the center of the AI authoring demo until the OER builder reaches NCOER parity.
 
+### 2.1 Core Demo Personas
+
+Use exactly three personas for the core route. They are the real Davis rating chain in the seed data, so no persona switch introduces an unrelated record:
+
+| Persona | Role in the demo | What they do live |
+| --- | --- | --- |
+| **SGT Davis** | Rated Soldier | Holds an approved performance goal, logs a fresh accomplishment, attaches proof, and links the accomplishment to the goal. |
+| **SSG Johnson** | Rater | Records a concise observation, discusses/releases it in quarterly counseling, reviews mixed evidence, generates AI bullet suggestions, accepts/edits/rejects, signs. |
+| **SFC Williams** | Senior Rater | Receives the rater's handoff, reviews the senior-rater section, signs, completing the rating-chain triangle. |
+
+Do not introduce CPT Smith, 1LT Torres, or MAJ Lee into the core route. They belong to two separate, optional tracks: the Torres OER boundary segment above, and the CPT Smith dashboard-analytics fixture history (`npm run seed:dashboard`). Mixing them into the core route dilutes the single authoring story the demo is built to prove.
+
 ### Best PM-facing story
 
 1. Start with Davis's opening dashboard: avatar, rank, grade, unit, UIC, MOS, duty title, assignment dates, readiness statuses, active rating chain, and visible `IPPS-A` / `Demo integration` source labels.
 2. Have the Soldier add one prepared accomplishment and attach one prepared proof artifact.
-3. Have the rater generate AI bullet suggestions from that fresh evidence.
+3. Have the rater record one observation, release it through quarterly counseling, then generate AI bullet suggestions from the mixed evidence.
 4. Show that every suggestion must be reviewed, edited, accepted, or rejected.
 5. Show provenance and unsupported-fact checks before signature.
 6. Close the core route with the regulated signature/final-review sequence and the draft-watermarked PDF posture.
@@ -56,6 +72,7 @@ This avoids the weak demo pattern of opening a completed seeded evaluation and s
 | Opening and product frame | 30 seconds | "The original EES digitized the form. MERIT digitizes the performance-management process behind it." |
 | Authoritative profile | 60 seconds | Show IPPS-A stub, Microsoft avatar, read-only personnel data, assignment, and rating chain. |
 | Soldier captures fresh performance | 60-90 seconds | Add one prepared accomplishment and proof. |
+| Rater observation and counseling | 60-90 seconds | Record a factual observation, then release it through a quarterly counseling checkpoint. |
 | Rater generates and reviews | 2-3 minutes | Select evidence, generate suggestions, use one, edit one, reject one. |
 | Trust controls | 60-90 seconds | Show provenance, unsupported claims, consistency checks, and draft status. |
 | Regulated workflow | 60 seconds | Show readiness, signatures, senior-rater handoff, and final review; do not execute every signature live unless asked. |
@@ -105,9 +122,9 @@ Target time: **45-60 seconds**. This is the first product-value moment.
 
 Do not rush this segment. It establishes cloud-first administrative-burden reduction before the AI story begins.
 
-### 3.3 Soldier Segment - Add Fresh Evidence
+### 3.3 Soldier Segment - Add Fresh Evidence and Trace It to a Goal
 
-Target time: **60-90 seconds**. Use one prepared accomplishment and one prepared artifact, then move on.
+Target time: **90-120 seconds**. Use one prepared accomplishment and one prepared artifact, then link it to the matching approved goal.
 
 | Step | Exact action | Highlight while doing it |
 | --- | --- | --- |
@@ -119,6 +136,19 @@ Target time: **60-90 seconds**. Use one prepared accomplishment and one prepared
 | 6 | Paste the prepared accomplishment text. | "Specific facts matter: team size, task, result, and impact." |
 | 7 | Click **+ Attach proof**, choose the prepared file, select the artifact type, and leave discrepancy unchecked unless the artifact is intentionally questionable. | "The proof and the narrative travel together; AI and the rater inherit the same source trail." |
 | 8 | Save the entry and return to `/support-form`. | "The new fact is now visible as part of the rating-period record." |
+| 9 | Go to `/support-form/goals?formId=<davisFormId>`. Open the approved goal matching the section used above (for example `Build a disciplined, ready team` for Leads). | "This is the requirement side: an approved goal the Soldier and rater already agreed on." |
+| 10 | Use the goal's evidence action to link the entry just created. | "Linking is the traceability step: this documented performance now traces back to a specific approved goal, the way a test result traces back to a requirement." |
+
+### 3.3a Rater Observation and Quarterly Counseling
+
+Target time: **60-90 seconds**. This establishes that rater observations are not a hidden permanent file: they become visible to the Soldier only when discussed in counseling.
+
+| Step | Exact action | Highlight while doing it |
+| --- | --- | --- |
+| 1 | Switch to **SSG Johnson - Squad Leader** and open Davis's `/support-form`. | "The assigned rater can capture a concise factual observation while the performance context is fresh." |
+| 2 | In **Performance Observations**, select the relevant approved goal, dimension, feedback type, and enter a factual note. | "This is rater-owned evidence, separate from the Soldier's accomplishment assertion." |
+| 3 | Conduct the one official counseling event using the required DA Form 4856 or unit process. Then open **Counseling**, record the outcome/reference, and mark the observation discussed. | "Counseling releases the observation to the Soldier. It does not change who wrote it, what was observed, or when it was recorded. MERIT is the evidence and traceability workspace, not a second DA 4856." |
+| 4 | Point to the released/private state. | "The system distinguishes an observation not yet discussed from one released through counseling." |
 
 ### 3.4 Rater Segment - Generate From Fresh Evidence
 
@@ -127,12 +157,13 @@ Target time: **60-90 seconds**. Use one prepared accomplishment and one prepared
 | 1 | Use the profile menu to switch persona. Select **SSG Johnson - Squad Leader**. | "Now the rater sees the same evidence through their rating authority, not the Soldier's account." |
 | 2 | Go to `/evaluations`. Open Davis's evaluation. If direct navigation is faster, open `/evaluations/dev-eval-davis/leads` or `/evaluations/dev-eval-davis/achieves`, matching the section used above. | "We are inside the NCOER authoring workspace, not a standalone AI chat." |
 | 3 | Click **Show AI** if the panel is collapsed. | "AI is available inside the regulated section builder." |
-| 4 | In **Soldier Accomplishments**, find the fresh entry, check it, and click **Generate bullets from selected (1)**. | "The rater chooses the exact documented fact used for generation." |
-| 5 | Open **View source fact** on one suggestion. | "This is the provenance beat: the draft points back to the exact source fact." |
-| 6 | Click **Use** on the best suggestion. | "Accept is a human rating-official decision." |
-| 7 | Click **Edit** on another suggestion, make a small wording change, then **Save & Use**. | "The rater can improve the language without losing the AI provenance chain." |
-| 8 | Reject a weaker suggestion. | "Rejection is a first-class outcome; the system does not pressure the rater to use generated text." |
-| 9 | Click **Mark Complete** only after all pending suggestions are reviewed. | "The UI enforces review of suggestions before section completion, but it does not let AI decide the rating." |
+| 4 | In **Soldier Accomplishments** and **Rater Observations**, point to the goal badge and the separately labeled observation before checking the desired evidence. | "The two source types remain distinct: Soldier accomplishment versus rater observation. Both can trace to the same goal, but neither goal is proof by itself." |
+| 5 | Select one or more accomplishments and/or observations, then generate suggestions. | "The rater chooses the exact evidence used for generation." |
+| 6 | Open **View evidence trail** on one accepted suggestion. | "This is the provenance beat: the final draft points back to source type, text, author, timestamp, artifacts, counseling state, and goal context where applicable." |
+| 7 | Click **Use** on the best suggestion. | "Accept is a human rating-official decision." |
+| 8 | Click **Edit** on another suggestion, make a small wording change, then **Save & Use**. | "The rater can improve the language without losing the AI provenance chain." |
+| 9 | Reject a weaker suggestion. | "Rejection is a first-class outcome; the system does not pressure the rater to use generated text." |
+| 10 | Click **Mark Complete** only after all pending suggestions are reviewed. | "The UI enforces review of suggestions before section completion, but it does not let AI decide the rating." |
 
 ### 3.5 Optional Upload Segment - Existing Documents to Reviewed Facts
 
@@ -212,7 +243,7 @@ Talk track:
 - "The profile image is also simulated through a Microsoft identity source. In an operational environment, the approved Microsoft profile service would provide it."
 - "The rating chain remains governed separately through effective-dated rating assignments. Personnel data identifies the user; it does not independently grant rating authority."
 
-### Soldier segment: capture the evidence
+### Soldier segment: capture the evidence and trace it to a goal
 
 Demo action:
 
@@ -220,12 +251,14 @@ Demo action:
 2. Add the prepared live-fire rehearsal accomplishment tied to `Leads` or `Achieves`.
 3. Attach one prepared proof artifact.
 4. Save and move on.
+5. Open Goals, find the matching approved goal, and link the fresh accomplishment to it.
 
 Talk track:
 
 - "This is where the evaluation starts: with a Soldier-owned performance record, not with a blank NCOER shell."
 - "The proof matters because the AI and the rater both inherit the same evidence trail."
 - "A sparse support form stays visible as a process problem instead of becoming an end-of-year writing emergency."
+- "Think of this the way a systems engineer thinks about requirements and verification: the goal is the requirement, the accomplishment and artifact are the verification evidence, and this link is the traceability record. The bullet, coming up next, is closer to a verified test result than to the requirement itself."
 
 ### Rater segment: generate and review bullets
 
@@ -243,6 +276,7 @@ Talk track:
 - "The rater is not asking AI to make up performance. The rater is asking AI to draft from documented performance."
 - "Nothing jumps straight onto the final form. Suggestions sit in a review state until the rater acts."
 - "The accepted bullet keeps its lineage: source entry, artifact caption or extracted fact, AI suggestion, rater decision, and final text."
+- "If the evidence links to a goal, AI can see that goal for context and intent. It is never treated as proof - the claim in the bullet still has to come from the accomplishment and the artifact, not from the plan."
 
 ### Trust segment: show the guardrails
 
@@ -317,6 +351,7 @@ Before a PM demo:
 | Start the frontend from the current branch | The demo should match the documented route and seeded personas. |
 | Confirm IPPS-A and Microsoft profile demo labels are visible | The first product moment depends on making source-backed, read-only profile data obvious. |
 | Seed or create a fresh assignment-backed support form | Support forms are consumed by evaluation creation; reused fixtures create false 409s. |
+| Confirm Davis's support form still shows 3 approved goals and 2 captioned artifacts, and restart `dev:real` after any `.env` or seed change | Re-seeding is idempotent by fixed ID, but a stale backend process can stay pointed at an old database connection until restarted. |
 | Configure the AI provider keys required by the active generation routes | Missing keys fail closed and turn the AI segment into a manual-entry fallback. |
 | Prepare one strong uploaded support form or artifact | The best AI demo starts with concrete facts: numbers, dates, schools, awards, tasks, and outcomes. |
 | Rehearse accept/edit/reject states | The PM should see human control, not only a happy-path accept. |
@@ -348,7 +383,7 @@ The demo succeeds when the PM sees all of the following in one coherent story:
 1. The opening dashboard reduces administrative entry by showing source-backed personnel and assignment context.
 2. The IPPS-A and Microsoft profile integrations are honestly labeled as demo stubs, not production connections.
 3. A fresh Soldier-owned fact enters the system.
-4. The fact is tied to a support form, goal, artifact, uploaded document, or extracted source fact.
+4. The fact is tied to a support form, linked to an approved goal for traceability, and supported by an artifact, uploaded document, or extracted source fact.
 5. The rater uses AI to draft from that evidence.
 6. The rater reviews and owns the final text.
 7. The system can show where the bullet came from.

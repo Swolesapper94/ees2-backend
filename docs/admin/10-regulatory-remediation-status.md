@@ -5,7 +5,8 @@
 ## Deployment Status (as of 2026-07-17 14:00 UTC)
 
 ✅ **All 14 migrations successfully applied** to the configured Supabase datasource.  
-✅ **Schema fully deployed:** 36 Prisma models, 50 enums, all relationships intact.  
+✅ **Schema fully deployed:** 37 Prisma models, 53 enums, all relationships intact.  
+✅ **Datasource region:** migrated from the EU pooler to the `aws-1-us-east-2` (US) Shared Pooler for reduced latency; `connection_limit=5` (the Shared Pooler session cap is 15, not 20).  
 ✅ **Demo fixtures seeded:** 8 test personas, 2 rating-scheme assignments, 3 support forms, 2 evaluations.  
 ✅ **Workflow fixtures verified:** Davis NCOER (4-person chain with supplementary reviewer) and Torres OER ready for end-to-end testing.  
 

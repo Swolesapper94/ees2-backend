@@ -178,3 +178,39 @@ export async function requireEntriesBelongToEval(
 
   return entries;
 }
+
+/**
+ * Re-fetches rater observations and verifies they belong to the evaluation's
+ * linked support form. Observation IDs deliberately never flow through the
+ * legacy sourceEntryIds contract.
+ */
+export async function requireObservationsBelongToEval(
+  evaluationId: string,
+  observationIds: string[],
+) {
+  if (observationIds.length === 0) return [];
+
+  const evaluation = await prisma.evaluation.findUnique({
+    where: { id: evaluationId },
+    select: { supportFormId: true },
+  });
+  if (!evaluation?.supportFormId) {
+    throw new HttpError(409, "Evaluation has no linked support form.");
+  }
+
+  const observations = await prisma.performanceObservation.findMany({
+    where: { id: { in: observationIds } },
+    include: {
+      goal: { select: { id: true, title: true, description: true, approvalStatus: true } },
+      observer: { select: { id: true, firstName: true, lastName: true, rank: true } },
+      discussedInCounselingSession: { select: { id: true, type: true, sessionDate: true } },
+    },
+  });
+
+  const unauthorized = observations.filter((observation) => observation.supportFormId !== evaluation.supportFormId);
+  if (observations.length !== observationIds.length || unauthorized.length > 0) {
+    throw new HttpError(403, "One or more observations do not belong to this evaluation's support form.");
+  }
+
+  return observations;
+}

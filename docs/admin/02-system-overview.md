@@ -17,7 +17,7 @@ EES 2.0 mirrors the real Army **rating chain**. Access and available actions are
 | **Access assistant** | A separately authenticated helper with a time-limited, resource-scoped access grant | Organizes permitted evidence or administrative work under their own identity; never signs, acknowledges, makes rating decisions, or becomes a rating official |
 | **Commander / Admin** | Unit leadership and administrators | Manage users, units, and rating chains; view compliance and velocity analytics |
 
-A person can hold multiple roles (a rater is also somebody else's rated soldier). The system resolves the correct role per evaluation via the rating chain.
+A person can hold multiple roles (a rater is also somebody else's rated soldier). The system resolves the correct role per evaluation via the rating chain. Anyone with formation-level visibility can view the current rating scheme as a visual, org-chart-style relationship map (the default view) or as a sortable table — the same underlying rater/senior-rater/rated-soldier data, presented two ways.
 
 ---
 
@@ -29,7 +29,7 @@ The support form is a **living log** that exists for a rating period. New regula
 
 **What a soldier does:**
 1. Opens the Support Form and clicks **Log entry**.
-2. Chooses whether it's an **Objective** (a goal to work toward) or an **Accomplishment** (something already done).
+2. Logs an **Accomplishment** — something already done. (Forward-looking intent is captured separately as a **Goal**, described below — it is no longer a choice of entry type. Legacy `Objective` entries created before this change remain visible as historical evidence only.)
 3. Picks which of the six leadership dimensions it supports (Character, Presence, Intellect, Leads, Develops, Achieves).
 4. Writes a short factual description.
 5. **Optionally attaches proof** — one or more *artifacts*:
@@ -50,6 +50,10 @@ The support form is a **living log** that exists for a rating period. New regula
 - **Hard gate** — Part I–III administrative data plus at least one goal in *any* dimension. Clearing this **unlocks** the ability to initiate the evaluation.
 - **Soft indicator** — all six dimensions have at least one goal. This is shown as a progress indicator but **never blocks** the soldier (so one slow dimension can't hold a career hostage).
 
+**Goals — the forward-looking counterpart to accomplishments.** A goal is a Soldier-authored statement of intent for one leadership dimension, submitted to the assigned rater for approval (or a request for revision — raters cannot author a soldier's goals for them). Approved goals give a 3–5-goal-per-dimension focus advisory — never a blocking requirement — so a soldier's areas of focus stay visible without becoming a checklist. Soldier and rater each record their own separate progress assessment on a goal, and an incomplete approved goal can be carried forward into the next rating period with an explicit link back to its source, never by silently editing the prior record. A goal is context for evidence, not evidence itself: the accomplishment and its artifact are what prove something happened.
+
+**Rater observations and counseling.** Separately from the soldier's own accomplishments, the assigned rater can log a short, factual **performance observation** — positive, developmental, or neutral — tied to a dimension and, optionally, an approved goal. An observation is private to the rater until the rater discusses it with the soldier and releases it through a **counseling preparation** workspace. That workspace composes the relevant goals, evidence, and observations since the last session to help the rater prepare for and reconcile the *required* official counseling (DA Form 4856); it is explicitly not a second official counseling record — it stores only an outcome summary plus an optional reference/link to the completed official form. Releasing an observation never changes who wrote it, what was observed, or when it happened; counseling changes only its visibility to the soldier.
+
 ### Half 2 — The Evaluation (the official NCOER/OER)
 
 When the rating period closes (or a triggering event occurs), the documented performance becomes the official report.
@@ -58,13 +62,13 @@ When the rating period closes (or a triggering event occurs), the documented per
 
 **The rater picks it up** and works through the DA-form sections. For each of the six Part IV performance dimensions, the rater has a builder that offers three ways to produce bullets:
 
-1. **Soldier Accomplishments widget** — shows the soldier's logged accomplishments *for that dimension*, each with its attached proof, AI caption, and the rater's own confirmation status. The rater checks the ones that apply and clicks **Generate bullets from selected**. The AI turns that evidence (plus doctrinal context) into ranked draft candidates. If any selected item had a soldier-flagged artifact, the rater sees a "verify before relying on this" warning.
+1. **Soldier Accomplishments widget** — shows the soldier's logged accomplishments *for that dimension*, each with its attached proof, AI caption, and the rater's own confirmation status. The rater checks the ones that apply and clicks **Generate bullets from selected**. The AI turns that evidence (plus doctrinal context) into ranked draft candidates. If any selected item had a soldier-flagged artifact, the rater sees a "verify before relying on this" warning. A separate **Rater Observations** panel shows the rater's own released observations for that dimension and can be selected alongside accomplishments; every generated suggestion keeps a typed record of exactly which evidence type — soldier accomplishment or rater observation — it came from.
 2. **Generate from scratch** — the rater describes what the soldier did in free text, and the AI drafts candidates from that.
 3. **Write manually** — the rater types bullets directly.
 
 **Every AI draft flows into a review panel** where the rater must **accept, edit, or reject** each one. Before deciding, the rater also sees any **unsupported-fact warnings** — specific claims in the draft (a number, a date, a school name, an award) that don't appear anywhere in the evidence it was generated from. A section can't be marked complete while suggestions await review. Accepted bullets are tagged with a source (`AI_UNMODIFIED`, `AI_MODIFIED`, or `HUMAN`) and keep a permanent, reviewable link back to exactly which entries and evidence produced them.
 
-**Routing and signatures** follow the stored evaluation snapshot: rater → senior rater → rated soldier acknowledgment → supplementary reviewer, when the published assignment requires one. Signing is content-hash protected, so editing a signed field flags the signature as stale. The evaluation's status is **automatically derived** from real section-completion and signature progress, so everyone always sees an accurate picture of where the report stands — not a stale or manually-set label.
+**Routing and signatures** follow the stored evaluation snapshot: rater → senior rater → rated soldier acknowledgment → supplementary reviewer, when the published assignment requires one. Signing is content-hash protected, so editing a signed field flags the signature as stale. The evaluation's status is **automatically derived** from real section-completion and signature progress, so everyone always sees an accurate picture of where the report stands — not a stale or manually-set label. If HRC or the chain returns an evaluation, the specific return reason is shown to the soldier and rater rather than a generic rejected status.
 
 **Export.** The finished evaluation renders to the official DA-form PDF for submission.
 

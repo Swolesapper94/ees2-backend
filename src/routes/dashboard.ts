@@ -67,55 +67,62 @@ async function buildDashboardRecap(userId: string, lastLoginAt: Date | null): Pr
     OR: [{ ratedSoldierId: userId }, { raterId: userId }, { seniorRaterId: userId }],
   };
 
-  const [notifications, evaluations, entries] = await Promise.all([
-    prisma.notification.findMany({
-      where: { userId, createdAt: changedSince },
-      orderBy: { createdAt: "desc" },
-      take: 4,
-      select: { title: true, message: true, createdAt: true },
-    }),
-    prisma.evaluation.findMany({
-      where: { updatedAt: changedSince, disposition: "ACTIVE", ratingChain: chainScope },
-      orderBy: { updatedAt: "desc" },
-      take: 4,
-      select: {
-        status: true,
-        updatedAt: true,
-        ratingChain: { select: { ratedSoldier: { select: { rank: true, lastName: true } } } },
-      },
-    }),
-    prisma.supportFormEntry.findMany({
-      where: {
-        updatedAt: changedSince,
-        supportForm: { disposition: "ACTIVE", ratingChain: chainScope },
-      },
-      orderBy: { updatedAt: "desc" },
-      take: 4,
-      select: {
-        entryType: true,
-        section: true,
-        updatedAt: true,
-        supportForm: { select: { soldier: { select: { rank: true, lastName: true } } } },
-      },
-    }),
-  ]);
+  let events: DashboardRecapEvent[];
 
-  const events: DashboardRecapEvent[] = [
-    ...notifications.map((notification) => ({
-      occurredAt: notification.createdAt,
-      detail: notification.title,
-    })),
-    ...evaluations.map((evaluation) => ({
-      occurredAt: evaluation.updatedAt,
-      detail: `${evaluation.ratingChain.ratedSoldier.rank} ${evaluation.ratingChain.ratedSoldier.lastName}'s evaluation is now ${evaluation.status.replaceAll("_", " ").toLowerCase()}`,
-    })),
-    ...entries.map((entry) => ({
-      occurredAt: entry.updatedAt,
-      detail: `${entry.entryType.toLowerCase()} added for ${entry.supportForm.soldier.rank} ${entry.supportForm.soldier.lastName} in ${entry.section.toLowerCase()}`,
-    })),
-  ]
-    .sort((first, second) => second.occurredAt.getTime() - first.occurredAt.getTime())
-    .slice(0, 6);
+  try {
+    const [notifications, evaluations, entries] = await Promise.all([
+      prisma.notification.findMany({
+        where: { userId, createdAt: changedSince },
+        orderBy: { createdAt: "desc" },
+        take: 4,
+        select: { title: true, message: true, createdAt: true },
+      }),
+      prisma.evaluation.findMany({
+        where: { updatedAt: changedSince, disposition: "ACTIVE", ratingChain: chainScope },
+        orderBy: { updatedAt: "desc" },
+        take: 4,
+        select: {
+          status: true,
+          updatedAt: true,
+          ratingChain: { select: { ratedSoldier: { select: { rank: true, lastName: true } } } },
+        },
+      }),
+      prisma.supportFormEntry.findMany({
+        where: {
+          updatedAt: changedSince,
+          supportForm: { disposition: "ACTIVE", ratingChain: chainScope },
+        },
+        orderBy: { updatedAt: "desc" },
+        take: 4,
+        select: {
+          entryType: true,
+          section: true,
+          updatedAt: true,
+          supportForm: { select: { soldier: { select: { rank: true, lastName: true } } } },
+        },
+      }),
+    ]);
+
+    events = [
+      ...notifications.map((notification) => ({
+        occurredAt: notification.createdAt,
+        detail: notification.title,
+      })),
+      ...evaluations.map((evaluation) => ({
+        occurredAt: evaluation.updatedAt,
+        detail: `${evaluation.ratingChain.ratedSoldier.rank} ${evaluation.ratingChain.ratedSoldier.lastName}'s evaluation is now ${evaluation.status.replaceAll("_", " ").toLowerCase()}`,
+      })),
+      ...entries.map((entry) => ({
+        occurredAt: entry.updatedAt,
+        detail: `${entry.entryType.toLowerCase()} added for ${entry.supportForm.soldier.rank} ${entry.supportForm.soldier.lastName} in ${entry.section.toLowerCase()}`,
+      })),
+    ]
+      .sort((first, second) => second.occurredAt.getTime() - first.occurredAt.getTime())
+      .slice(0, 6);
+  } catch (error) {
+    console.warn("[dashboard] recap query unavailable", error);
+    return fallbackRecap([], false);
+  }
 
   if (events.length === 0) return fallbackRecap(events, false);
 
@@ -165,10 +172,9 @@ dashboardRouter.get(
       where: { id: userId },
       include: { unit: true, identitySourceRecord: true },
     });
-    const dashboardRecap = await buildDashboardRecap(userId, persistedUser?.lastLoginAt ?? null);
-
     const now = new Date();
-    const activeAssignment = await prisma.ratingSchemeAssignment.findFirst({
+    const dashboardRecapPromise = buildDashboardRecap(userId, persistedUser?.lastLoginAt ?? null);
+    const activeAssignmentPromise = prisma.ratingSchemeAssignment.findFirst({
       where: {
         ratedSoldierId: userId,
         status: "PUBLISHED",
@@ -185,7 +191,7 @@ dashboardRouter.get(
     });
 
     // ── Zone A — my own chain (I am the rated soldier) ────────────
-    const myChain = await prisma.ratingChain.findFirst({
+    const myChainPromise = prisma.ratingChain.findFirst({
       where: { ratedSoldierId: userId, isActive: true },
       // Prefer the most recently effective relationship when legacy chains remain active.
       orderBy: [{ effectiveDate: "desc" }, { createdAt: "desc" }],
@@ -206,17 +212,8 @@ dashboardRouter.get(
       },
     });
 
-    // Active support form entry count for myself
-    const myActiveSupportForm = await prisma.supportForm.findFirst({
-      where: myChain
-        ? { soldierId: userId, ratingChainId: myChain.id, isActive: true, disposition: "ACTIVE" }
-        : { id: "__no_active_chain__" },
-      orderBy: [{ ratingPeriodStart: "desc" }, { createdAt: "desc" }],
-      include: { _count: { select: { entries: true } } },
-    });
-
     // ── Zone B — soldiers I rate or senior rate ───────────────────
-    const rawChains = await prisma.ratingChain.findMany({
+    const rawChainsPromise = prisma.ratingChain.findMany({
       where: {
         isActive: true,
         OR: [{ raterId: userId }, { seniorRaterId: userId }],
@@ -245,6 +242,22 @@ dashboardRouter.get(
           },
         },
       },
+    });
+
+    const [dashboardRecap, activeAssignment, myChain, rawChains] = await Promise.all([
+      dashboardRecapPromise,
+      activeAssignmentPromise,
+      myChainPromise,
+      rawChainsPromise,
+    ]);
+
+    // Active support form entry count for myself
+    const myActiveSupportForm = await prisma.supportForm.findFirst({
+      where: myChain
+        ? { soldierId: userId, ratingChainId: myChain.id, isActive: true, disposition: "ACTIVE" }
+        : { id: "__no_active_chain__" },
+      orderBy: [{ ratingPeriodStart: "desc" }, { createdAt: "desc" }],
+      include: { _count: { select: { entries: true } } },
     });
 
     const currentChains = rawChains.filter((chain, index, chains) =>

@@ -262,6 +262,17 @@ enum GoalProgress {
   NOT_ACHIEVED
 }
 
+enum ObservationFeedbackType {
+  POSITIVE
+  DEVELOPMENTAL
+  NEUTRAL
+}
+
+enum ObservationReleaseState {
+  PRIVATE_TO_RATER
+  RELEASED_IN_COUNSELING
+}
+
 enum FinalReviewOutcome {
   CONFIRMED
   DISPUTED
@@ -472,6 +483,8 @@ model User {
   revokedRatingSchemeDelegations RatingSchemeDelegation[] @relation("RatingSchemeDelegationRevokedBy")
   supportEntriesCreated SupportFormEntry[] @relation("SupportEntryCreator")
   supportEntriesAssisted SupportFormEntry[] @relation("SupportEntrySubject")
+  authoredObservations PerformanceObservation[] @relation("ObservationAuthor")
+  subjectObservations PerformanceObservation[] @relation("ObservationRatedSoldier")
   identitySourceRecord IdentitySourceRecord?
   identitySyncEvents IdentitySyncEvent[]
   identityExceptions IdentityException[]
@@ -781,9 +794,12 @@ model CounselingSession {
   type            CounselingType
   sessionDate     DateTime
   notes           String?
+  officialRecordReference String?
+  officialRecordUrl String?
   raterInitials   String?
   soldierInitials String?
   goalDiscussions GoalCounselingDiscussion[]
+  releasedObservations PerformanceObservation[] @relation("ObservationCounselingRelease")
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -846,6 +862,7 @@ model SupportForm {
   completedAt       DateTime?
   entries           SupportFormEntry[]
   goals             Goal[]
+  observations      PerformanceObservation[]
   evaluations       Evaluation[]
   accessGrants      Delegate[]
   createdAt         DateTime           @default(now())
@@ -928,6 +945,7 @@ model Goal {
   carriedForwardFromGoal Goal? @relation("GoalCarryForward", fields: [carriedForwardFromGoalId], references: [id])
   carriedForwardGoals  Goal[]  @relation("GoalCarryForward")
   linkedEntries        GoalEntryLink[]
+  observations         PerformanceObservation[]
   counselingDiscussions GoalCounselingDiscussion[]
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
@@ -964,6 +982,39 @@ model GoalCounselingDiscussion {
 
   @@unique([goalId, counselingSessionId])
   @@map("goal_counseling_discussions")
+}
+
+// Rater-owned factual observation. This is intentionally distinct from a
+// Soldier-authored SupportFormEntry. It becomes visible to the rated Soldier
+// only when released through a linked counseling session.
+model PerformanceObservation {
+  id                         String                  @id @default(cuid())
+  supportFormId              String
+  supportForm                SupportForm             @relation(fields: [supportFormId], references: [id], onDelete: Cascade)
+  ratedSoldierId             String
+  ratedSoldier               User                    @relation("ObservationRatedSoldier", fields: [ratedSoldierId], references: [id])
+  observerId                 String
+  observer                   User                    @relation("ObservationAuthor", fields: [observerId], references: [id])
+  goalId                     String?
+  goal                       Goal?                   @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  sectionKey                 SectionKey
+  feedbackType               ObservationFeedbackType
+  factualNote                String
+  tags                       String[]                @default([])
+  occurredAt                 DateTime
+  releaseState               ObservationReleaseState @default(PRIVATE_TO_RATER)
+  discussedAt                DateTime?
+  discussedInCounselingSessionId String?
+  discussedInCounselingSession CounselingSession?     @relation("ObservationCounselingRelease", fields: [discussedInCounselingSessionId], references: [id], onDelete: SetNull)
+  lastEditedAt               DateTime?
+  lastEditedById             String?
+  createdAt                  DateTime                @default(now())
+  updatedAt                  DateTime                @updatedAt
+
+  @@index([supportFormId, occurredAt])
+  @@index([goalId])
+  @@index([ratedSoldierId, releaseState])
+  @@map("performance_observations")
 }
 
 // Proof attached to a SupportFormEntry — see ArtifactType above.
@@ -1556,6 +1607,11 @@ model AIBulletSuggestion {
   reviewedById   String?
   reviewedAt     DateTime?
   sourceEntryIds String[] // AIExtractedEntry OR SupportFormEntry IDs that contributed
+
+  // Versioned typed source references. sourceEntryIds remains for legacy
+  // support-form entry/upload paths; observations use this field instead of
+  // overloading entry IDs.
+  evidenceReferences Json?
 
   // Immutable snapshot of the source text (entry rawText + artifact captions)
   // at generation time (MVP audit 5.1/5.9). Source entries can be edited or

@@ -139,6 +139,7 @@ evaluationsRouter.get(
       include: {
         ratingChain: { include: { ratedSoldier: true, rater: true, seniorRater: true } },
         signatures: true,
+        returns: { orderBy: { returnedAt: "desc" } },
       },
       orderBy: { updatedAt: "desc" },
     });
@@ -322,7 +323,31 @@ evaluationsRouter.get(
         ratingChain: {
           include: { ratedSoldier: { include: { unit: true, identitySourceRecord: true } }, rater: true, seniorRater: true, reviewer: true },
         },
-        supportForm: { include: { entries: { include: { artifacts: true } } } },
+        supportForm: {
+          include: {
+            entries: {
+              include: {
+                artifacts: true,
+                goalLinks: {
+                  include: {
+                    goal: {
+                      select: { id: true, title: true, description: true, approvalStatus: true },
+                    },
+                  },
+                },
+              },
+            },
+            observations: {
+              include: {
+                observer: { select: { id: true, firstName: true, lastName: true, rank: true } },
+                goal: { select: { id: true, title: true, description: true, approvalStatus: true } },
+                discussedInCounselingSession: { select: { id: true, type: true, sessionDate: true } },
+              },
+              orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+            },
+          },
+        },
+        returns: { orderBy: { returnedAt: "desc" } },
       },
     });
     if (!evaluation) {
@@ -332,6 +357,15 @@ evaluationsRouter.get(
     const access = req.user ? await authorizeEvaluationView(req.user, evaluation, evaluation.ratingChain) : { allowed: false };
     if (!access.allowed) {
       throw new HttpError(404, "Evaluation not found");
+    }
+    const canViewPrivateObservations = req.user && [
+      evaluation.ratingChain.raterId,
+      evaluation.ratingChain.seniorRaterId,
+    ].includes(req.user.id);
+    if (evaluation.supportForm && !canViewPrivateObservations) {
+      evaluation.supportForm.observations = evaluation.supportForm.observations.filter(
+        (observation) => observation.releaseState === "RELEASED_IN_COUNSELING",
+      );
     }
 
     // ── Senior Rater MQ profile snapshot (real live data, not the unused
@@ -373,7 +407,7 @@ evaluationsRouter.get(
       lastRefreshed: evaluation.ratingChain.ratedSoldier.identitySourceRecord?.lastSynchronizedAt ?? null,
     };
 
-    res.json({ ...evaluation, srMqProfile, ratedSoldierPersonnelProfile });
+    res.json({ ...evaluation, srMqProfile, ratedSoldierPersonnelProfile, canUseRaterEvidence: Boolean(canViewPrivateObservations) });
   }),
 );
 

@@ -76,13 +76,21 @@
 
 **Consistency check** — A pre-signature validation that scans for contradictions, unresolved unsupported-fact claims, and regulation issues across the evaluation.
 
+**Counseling preparation (workspace)** — The in-app workspace a rater uses to prepare for and reconcile a required official counseling session (DA Form 4856). It composes goals, evidence, and rater observations since the last session and records a short outcome summary plus an optional reference/link to the completed official record. It is not a second official counseling process.
+
 **Evidence-driven evaluation** — The paradigm shift EES 2.0 represents: the evaluation is a byproduct of a documented year of performance, versus **event-driven** (deadline-scramble) evaluation.
+
+**Goal** — A Soldier-authored statement of intent for one leadership dimension, submitted to the assigned rater for approval or revision. Approved goals give a 3-5-per-dimension focus advisory (never blocking) and can be carried forward, unedited, into a successor support form via an explicit link. A goal is context for evidence, not evidence itself — distinct from an **accomplishment**, which documents something already done.
 
 **iPERMS-discrepancy flag (`flaggedByServiceMember`)** — A soldier's honest self-attestation that an artifact may not be reflected in iPERMS or contains a discrepancy, surfaced to the rater/senior rater instead of being hidden.
 
 **Performance timeline** — A read-only, chronological, filterable view composing a soldier's logged support-form entries, counseling sessions, and milestones for a rating period, giving the rater full context before drafting or finalizing bullets.
 
+**Performance observation** — A rater-owned factual note about a soldier's performance, separate from the soldier's own logged accomplishments. Private to the assigned rater until released through counseling; only the assigned rater may author, edit, delete, or release one.
+
 **Rater confirmation** — A rater's explicit review status on a soldier-logged entry: `UNREVIEWED`, `CONFIRMED` (trusted as context), `NEEDS_CLARIFICATION` (with a note), or `NOT_USED`. Distinct from, and complementary to, the soldier's own artifact-level self-attestation flag.
+
+**Rating relationship map** — The default org-chart-style visualization of the current rating scheme (senior rater → rater → rated soldier, with reviewers and assignment exceptions shown inline), with a sortable table available as an alternate view.
 
 **Soldier Accomplishments widget** — The rater-facing panel in the section builder that lists the soldier's logged accomplishments (with proof and the rater's confirmation status) for a dimension and turns the selected ones into draft bullets.
 

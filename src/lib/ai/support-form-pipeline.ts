@@ -372,6 +372,25 @@ export async function runStage3(
   if (storedEntries.length === 0) {
     throw new Error("No human-reviewed extracted facts are available for bullet generation.");
   }
+  const evaluation = await prisma.evaluation.findUnique({
+    where: { id: evaluationId },
+    select: {
+      supportForm: {
+        select: {
+          goals: {
+            where: { approvalStatus: "APPROVED" },
+            select: { sectionKey: true, title: true, description: true },
+          },
+        },
+      },
+    },
+  });
+  const approvedGoalsBySection = new Map<string, string[]>();
+  for (const goal of evaluation?.supportForm?.goals ?? []) {
+    const summaries = approvedGoalsBySection.get(goal.sectionKey) ?? [];
+    summaries.push(`${goal.title}: ${goal.description}`);
+    approvedGoalsBySection.set(goal.sectionKey, summaries);
+  }
   let persistedSuggestionCount = 0;
   const generationFailures: string[] = [];
 
@@ -393,6 +412,7 @@ export async function runStage3(
 
 ARMY REGULATION CONTEXT (for accuracy):
 ${regContext}`;
+    const goalContext = approvedGoalsBySection.get(sectionKey) ?? [];
 
     for (const [entryIndex, entry] of sectionEntries.entries()) {
       const reviewedFact = entry.reviewedText ?? entry.originalExtractedText ?? entry.what;
@@ -413,6 +433,11 @@ ${SECTION_DEFINITIONS[sectionKey] ?? sectionKey}
 
 SOURCE FACT:
 ${evidence}
+
+${goalContext.length ? `APPROVED PERFORMANCE GOAL CONTEXT:
+${goalContext.join("\n")}
+
+` : ""}Use any approved goal only as context for relevance or intended impact. It is not evidence that the goal was achieved; ground every factual claim only in the reviewed source fact.
 
 Write exactly one evaluation performance candidate grounded only in the source fact. Do not combine it with another accomplishment and do not invent missing details. The candidate must:
 - Start with a strong past-tense action verb
@@ -612,16 +637,34 @@ export async function generateBulletsFromEntries(args: {
   evaluationId: string;
   sectionKey: string;
   entryIds: string[];
+  observationIds?: string[];
   soldierInfo: { rank: string; mos: string; dutyTitle: string; formType: string };
 }): Promise<{ bullets: BulletCandidate[]; hasFlaggedArtifacts: boolean }> {
   const entries = await prisma.supportFormEntry.findMany({
     where: { id: { in: args.entryIds } },
-    include: { artifacts: true },
+    include: {
+      artifacts: true,
+      goalLinks: {
+        include: {
+          goal: {
+            select: { title: true, description: true, approvalStatus: true },
+          },
+        },
+      },
+    },
   });
 
   const hasFlaggedArtifacts = entries.some((e) =>
     e.artifacts.some((a) => a.flaggedByServiceMember),
   );
+  const observations = await prisma.performanceObservation.findMany({
+    where: { id: { in: args.observationIds ?? [] } },
+    include: {
+      observer: { select: { firstName: true, lastName: true, rank: true } },
+      goal: { select: { title: true, description: true, approvalStatus: true } },
+      discussedInCounselingSession: { select: { sessionDate: true } },
+    },
+  });
 
   const formCategory = args.soldierInfo.formType.startsWith("OER") ? "OER" : "NCOER";
   const regQuery = `${formCategory} ${args.sectionKey} section ${SECTION_DEFINITIONS[args.sectionKey] ?? args.sectionKey}`;
@@ -646,6 +689,30 @@ ${regContext}`;
       if (captions.length > 0) {
         parts.push(`   Supporting evidence: ${captions.join("; ")}`);
       }
+      const goals = e.goalLinks
+        .map((link) => link.goal)
+        .filter((goal) => goal.approvalStatus === "APPROVED")
+        .map((goal) => `${goal.title}: ${goal.description}`);
+      if (goals.length > 0) {
+        parts.push(`   Linked performance goal context: ${goals.join("; ")}`);
+      }
+      return parts.join("\n");
+    })
+    .join("\n");
+
+  const observationText = observations
+    .map((observation, index) => {
+      const parts = [
+        `${index + 1}. ${observation.factualNote}`,
+        `   Rater observation by ${observation.observer.rank} ${observation.observer.lastName} on ${observation.occurredAt.toLocaleDateString()}.`,
+        `   Feedback type: ${observation.feedbackType.toLowerCase()}.`,
+      ];
+      if (observation.goal?.approvalStatus === "APPROVED") {
+        parts.push(`   Linked performance goal context: ${observation.goal.title}: ${observation.goal.description}`);
+      }
+      if (observation.releaseState === "RELEASED_IN_COUNSELING" && observation.discussedInCounselingSession) {
+        parts.push(`   Discussed in counseling on ${observation.discussedInCounselingSession.sessionDate.toLocaleDateString()}.`);
+      }
       return parts.join("\n");
     })
     .join("\n");
@@ -659,6 +726,11 @@ ${SECTION_DEFINITIONS[args.sectionKey] ?? args.sectionKey}
 
 SOLDIER-LOGGED ACCOMPLISHMENTS SELECTED BY THE RATER:
 ${entryText || "(none)"}
+
+RATER OBSERVATIONS SELECTED BY THE RATER:
+${observationText || "(none)"}
+
+Use linked performance goals only as context for the intended result or developmental focus. An approved goal is not evidence that it was achieved; use only the accomplishments and supporting evidence to make factual claims.
 
 Write 5 evaluation bullet candidates for ${formLabel}. Rank best to worst.
 Each bullet: action verb, action-impact format, no pronouns, \u2264200 chars.

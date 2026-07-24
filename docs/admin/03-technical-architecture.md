@@ -113,7 +113,7 @@ ees2-frontend/
 
 ## 4. Data model (the important entities)
 
-The Prisma schema currently defines **36 models** and **50 enums**. This section is the architectural map of the important entities; [14 - Supabase PostgreSQL Database Schema Reference](./14-database-schema-reference.md) is the authoritative field-by-field reference for every table, relationship, index, and raw pgvector column.
+The Prisma schema currently defines **37 models** and **53 enums**. This section is the architectural map of the important entities; [14 - Supabase PostgreSQL Database Schema Reference](./14-database-schema-reference.md) is the authoritative field-by-field reference for every table, relationship, index, and raw pgvector column.
 
 ### People & structure
 - **`User`** — a service member. Holds rank, category, MOS, roles (`SOLDIER`, `RATER`, `SENIOR_RATER`, legacy `REVIEWER`, `COMMANDER`, `ADMIN`, plus unit-leadership roles), profile picture, unit. The `REVIEWER` enum rename to `SUPPLEMENTARY_REVIEWER` is staged for compatibility with existing stored data.
@@ -124,9 +124,11 @@ The Prisma schema currently defines **36 models** and **50 enums**. This section
 
 ### Continuous performance capture
 - **`SupportForm`** — a rating-period performance log, anchored to a legacy `RatingChain` or a versioned `RatingSchemeAssignment` during transition. It carries explicit lifecycle (`DRAFT` through `CONSUMED`, plus archive/quarantine), disposition, initiator, version, and consumption metadata as well as `evalCategory` and completeness fields.
-- **`SupportFormEntry`** — one logged objective or accomplishment, tagged to a `SectionKey` (one of the six dimensions) and an `EntryType` (`OBJECTIVE` / `ACCOMPLISHMENT`). It records creator, role at creation, last editor, source version, and confirmation lock metadata. A rater or senior rater may confirm, request clarification, or mark an entry not used; a supplementary reviewer may not.
+- **`SupportFormEntry`** — one logged accomplishment, tagged to a `SectionKey` (one of the six dimensions). New entries must be `ACCOMPLISHMENT`; the `OBJECTIVE` `EntryType` value is retained only for legacy entries created before goals became a standalone model — new objective-entry creation is rejected with `OBJECTIVE_ENTRY_DEPRECATED`. It records creator, role at creation, last editor, source version, and confirmation lock metadata. A rater or senior rater may confirm, request clarification, or mark an entry not used; a supplementary reviewer may not.
 - **`SupportFormEntryArtifact`** — proof attached to an entry: `type` (Certificate/Score Sheet/Photo/Document/Other), the stored file, an AI-generated `aiCaption` (+ status), and a soldier self-attestation flag (`flaggedByServiceMember` + note) for iPERMS-discrepancy transparency.
-- **`CounselingSession`** — recorded initial/quarterly counseling (feeds compliance analytics and the DA-form Part II dates).
+- **`Goal` / `GoalEntryLink`** — the forward-looking counterpart to an accomplishment. A goal is Soldier-authored, tagged to a dimension, and moves through an explicit approval status (`DRAFT` → `PENDING_RATER_REVIEW` → `APPROVED` / `NEEDS_REVISION`) with the assigned rater as approver. Soldier and rater each record their own progress assessment. `GoalEntryLink` traces an accomplishment to the goal(s) it supports; a goal is never itself treated as evidence that something happened. A goal can be carried forward into a successor support form via `carriedForwardFromGoalId`, which always creates a new record rather than mutating the prior period's goal.
+- **`PerformanceObservation`** — a rater-owned factual note, deliberately separate from a soldier-authored `SupportFormEntry`. It is private to the assigned rater (`releaseState = PRIVATE_TO_RATER`) until discussed in counseling and released (`RELEASED_IN_COUNSELING`); only the assigned rater may author, edit, delete, or release one. It optionally links to an approved `Goal` for traceability and to the `CounselingSession` where it was released, but release never rewrites its original author, note, or occurrence timestamp.
+- **`CounselingSession`** — recorded initial/quarterly counseling (feeds compliance analytics and the DA-form Part II dates). It also carries an optional `officialRecordReference` / `officialRecordUrl` so the in-app counseling-preparation workspace can point back to the completed official DA Form 4856 or unit record, rather than generating a second official counseling narrative.
 
 ### The evaluation
 - **`Evaluation`** — the official NCOER/OER. Links to its legacy chain during the migration and, for assignment-backed creation, has one immutable `EvaluationRatingSnapshot` recording the approved officials, ranks, categories, form category, and policy exception at creation. It also has an explicit active/quarantined/archived disposition. Status is **automatically derived** from real section-completion and signature state.
@@ -138,7 +140,7 @@ The Prisma schema currently defines **36 models** and **50 enums**. This section
 - **`EvaluationReturn`** — a record of an HRC/chain return with reason.
 
 ### AI & audit
-- **`AIBulletSuggestion`** — every AI-drafted bullet candidate, whether generated from selected support-form entries, a rater's free-text description, or the whole-document upload pipeline. Carries rank, confidence, and review status (`PENDING_REVIEW` → `ACCEPTED` / `EDITED` / `REJECTED`), plus two integrity fields captured **at generation time**: an **immutable source snapshot** (the exact entry text and artifact captions the bullet was drafted from — a later edit or deletion of the source entry can never retroactively rewrite this history) and any **unsupported-fact warnings** (see §6).
+- **`AIBulletSuggestion`** — every AI-drafted bullet candidate, whether generated from selected support-form entries, rater observations, a rater's free-text description, or the whole-document upload pipeline. Carries rank, confidence, and review status (`PENDING_REVIEW` → `ACCEPTED` / `EDITED` / `REJECTED`), plus integrity fields captured **at generation time**: a typed `evidenceReferences` array (`SUPPORT_FORM_ENTRY` vs. `PERFORMANCE_OBSERVATION`, so an observation ID is never overloaded onto `sourceEntryIds`), an **immutable source snapshot** (the exact entry/observation text and artifact captions the bullet was drafted from — a later edit or deletion of the source can never retroactively rewrite this history), and any **unsupported-fact warnings** (see §6).
 - **`SupportFormUpload` / `AIExtractedEntry`** — the whole-document upload pipeline: a scanned support form is uploaded, vision-extracted, and parsed into typed entries mapped to the six dimensions. The active upload run generates at most one candidate per extracted fact, preserves the exact source snapshot, and may be reprocessed without deleting prior runs.
 - **`AuditLog`** — general tamper-evident action log (signatures, submissions, entry confirmations, suggestion review actions, evaluation-status transitions, and more).
 - **`EvalMilestone`** — generated AR 623-3 suspense dates.
@@ -266,6 +268,28 @@ See [05 — Security & Compliance](./05-security-and-compliance.md) for the full
 | One wizard/template, branch on `evalCategory` | The six dimensions are identical NCO vs officer; avoids duplicate UIs |
 | AI provenance stored permanently | Trust, defensibility, and the anti-autopilot guarantee |
 | RAG over AR 623-3 / DA PAM 623-3 | Bullets are doctrinally grounded, not generic |
+| Rater observations kept separate from soldier entries | Preserves who-said-what: a soldier's own claim and a rater's independent factual note are never merged into one record |
+
+---
+
+## 11. Data sources: real vs. stubbed
+
+A reviewer new to the codebase should be able to tell, at a glance, which integrations are live and which are demo scaffolding. **No part of this environment is connected to a production Army system of record.**
+
+| Source | Status | Notes |
+|--------|--------|-------|
+| OpenAI (text + vision) | **Real** | Requires `OPENAI_API_KEY`; generation fails closed (not silently) without it. |
+| Supabase Postgres | **Real** | Hosted in the `aws-1-us-east-2` (US) region; the actual data store for every model in this document. |
+| Supabase Auth | **Real** | Issues and verifies the JWTs used for every non-health request. |
+| Supabase Storage | **Real** | Stores uploaded artifacts and support-form documents. |
+| IPPS-A personnel/profile data | **Stubbed** | `IdentitySourceRecord` is populated with `sourceSystem = IPPS_A` and a payload labeled `IPPS_A_STUB`; the UI shows an explicit `Demo integration` label next to it. No live IPPS-A connection exists. |
+| Microsoft profile photos | **Stubbed** | Synthetic `/demo-avatars/*.webp` assets with initials fallback; not connected to Microsoft Graph or any approved photo source. |
+| iPERMS document verification | **Not integrated** | iPERMS has no public API. The soldier self-attestation flag (`flaggedByServiceMember`) is the honest interim control, not automated verification. |
+| HDQA evaluation submission | **Internal workflow only** | Submission moves an evaluation through `SUBMITTED` / `ACCEPTED` / `RETURNED` inside this application; it is not a live connection to an external Army system. |
+| CAC/PKI signing | **Not implemented** | `Signature` has placeholder `cacCertSerial` / `pkiTokenHash` fields for future use; current signing uses name confirmation, not certificate-based signing. |
+| AR 623-3 / DA PAM 623-3 regulation text | **Real, static corpus** | Ingested once into `RegulationChunk` for retrieval-augmented generation; not a live feed that tracks regulation updates automatically. |
+
+See [16 - PM Demo Route](./16-pm-demo-route.md) §1.1 for the exact stub labels used in the live demo script, and [15 - Rater Profile & Rater Tendency Model](./15-rater-profile-and-tendency-model.md) §3 for why HRC-authoritative rater profile/tendency data is explicitly out of scope today.
 
 ---
 

@@ -25,6 +25,7 @@ Use the documents below according to their purpose. This matters when preparing 
 | --- | --- | --- |
 | Current database tables, fields, enums, relationships, indexes, and migration caveats | [14 - Database Schema Reference](./14-database-schema-reference.md) | `prisma/schema.prisma` and reviewed Prisma migrations |
 | Current API, data flow, authorization, and frontend-backend contract | [08 - Data Flow and API Contract](./08-data-flow-and-api-contract.md) | Current backend routes/policies and frontend API client |
+| Which integrations are real vs. demo stubs today | [03 - Technical Architecture](./03-technical-architecture.md) §11 | [16 - PM Demo Route](./16-pm-demo-route.md) §1.1 |
 | Regulatory remediation and active-vs-quarantined record posture | [10 - Regulatory Remediation Status](./10-regulatory-remediation-status.md) | [09 - Permission and Assignment Audit](./09-permission-and-assignment-audit.md) for historical evidence only |
 | Manual workflow execution and customer sign-off | [FLOWS - Workflow Test Runbook](./FLOWS.md) | [12 - Customer Manual Acceptance Test Plan](./12-customer-manual-acceptance-test-plan.md) |
 | Product story, delivery state, security posture, and terms | Documents 01 through 07 | Current code and the sources above when a claim needs technical proof |
@@ -64,4 +65,4 @@ The Army's evaluation process is high-stakes (it drives promotions, assignments,
 
 ---
 
-*Documentation maintained by the EES 2.0 team. Last substantive update: 2026-07-18 (added PM-facing fresh-start AI bullet demo route, plus Rater Profile & Rater Tendency demo-build sign-off).*
+*Documentation maintained by the EES 2.0 team. Last substantive update: 2026-07-23 (documentation consolidation pass — corrected stale Prisma model/enum counts, documented the rater-owned `PerformanceObservation` and counseling-preparation workspace, the Soldier-authored/rater-approved `Goal` model, typed AI `evidenceReferences`, the rating-scheme visual relationship map, returned-evaluation reason display, and the Supabase US-region database migration; added an explicit "real vs. stubbed" data-source reference).*

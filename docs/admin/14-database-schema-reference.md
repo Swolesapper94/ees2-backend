@@ -6,7 +6,7 @@
 
 **As of 2026-07-17 14:00 UTC: All 14 migrations have been successfully applied to the configured Supabase datasource.**
 
-The schema described herein (36 Prisma models, 50 enums, all relationships and indexes) is fully deployed and verified. The database has been confirmed to contain all expected tables and the test seed script completes successfully, creating 8 test personas, 2 rating-scheme assignments, 3 support forms, and 2 evaluations.
+The schema described herein (37 Prisma models, 53 enums, all relationships and indexes) is fully deployed and verified. The database has been confirmed to contain all expected tables and the test seed script completes successfully, creating 8 test personas, 2 rating-scheme assignments, 3 support forms, and 2 evaluations.
 
 **Migration tracking caveat:** The `_prisma_migrations` metadata table experienced corruption during recovery. The migrations are applied (confirmed by successful seed), but `npx prisma migrate status` may not report correctly. For production deployments, use `prisma migrate deploy` as authoritative. Do not use `prisma db push` as a production substitute.
 
@@ -444,6 +444,27 @@ Index: `(supportFormId, sectionKey)`.
 
 Unique constraint: `(goalId, supportFormEntryId)`.
 
+#### `performance_observations` (`PerformanceObservation`)
+
+Rater-owned factual observations are deliberately separate from Soldier-authored `support_form_entries`. They are private to the assigned rater until the rater discusses and releases them through a counseling session; counseling never changes the original author, note, occurrence date, or creation time.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | `String` PK | CUID. |
+| `supportFormId` | `String` FK -> `support_forms.id` | Cascade delete; required current-period context. |
+| `ratedSoldierId`, `observerId` | `String` FK -> `users.id` | Rated Soldier and assigned-rater author are stored separately. |
+| `goalId` | `String?` FK -> `goals.id` | Optional approved-goal traceability link; set null if the goal is deleted. |
+| `sectionKey` | `SectionKey` | Leadership dimension. |
+| `feedbackType` | `ObservationFeedbackType` | Explicit `POSITIVE`, `DEVELOPMENTAL`, or `NEUTRAL`. |
+| `factualNote`, `tags` | `String`, `String[]` | Required factual note and up to two operational tags at the API boundary. |
+| `occurredAt` | `DateTime` | When the rater observed the performance. |
+| `releaseState` | `ObservationReleaseState` | `PRIVATE_TO_RATER` until counseling release; then `RELEASED_IN_COUNSELING`. |
+| `discussedAt`, `discussedInCounselingSessionId` | `DateTime?`, `String?` FK -> `counseling_sessions.id` | Release/discussion metadata; does not rewrite original observation facts. |
+| `lastEditedAt`, `lastEditedById` | `DateTime?`, `String?` | Rater edit attribution. |
+| `createdAt`, `updatedAt` | `DateTime` | Timestamps. |
+
+Indexes: `(supportFormId, occurredAt)`, `(goalId)`, and `(ratedSoldierId, releaseState)`.
+
 #### `counseling_sessions` (`CounselingSession`)
 
 | Column | Type | Notes |
@@ -453,6 +474,7 @@ Unique constraint: `(goalId, supportFormEntryId)`.
 | `type` | `CounselingType` | Initial or quarterly. |
 | `sessionDate` | `DateTime` | Required session date. |
 | `notes` | `String?` | Counseling record. |
+| `officialRecordReference`, `officialRecordUrl` | `String?`, `String?` | Optional reference/link to the completed official DA Form 4856 or unit record. This is a reconciliation pointer only; MERIT does not store or generate an official DA 4856 in this release. |
 | `raterInitials`, `soldierInitials` | `String?` | Recorded acknowledgements. |
 | `createdAt`, `updatedAt` | `DateTime` | Timestamps. |
 
@@ -725,11 +747,12 @@ Relations: one upload yields `ai_extracted_entries` and can produce `ai_bullet_s
 | `editedText` | `String?` | Rater-edited accepted text. |
 | `reviewedById`, `reviewedAt` | `String?`, `DateTime?` | Review attribution/timing. |
 | `sourceEntryIds` | `String[]` | Source support-entry or extracted-entry identifiers. |
+| `evidenceReferences` | `Json?` | Versioned typed evidence references. Uses explicit kinds such as `SUPPORT_FORM_ENTRY` and `PERFORMANCE_OBSERVATION`; observation IDs never overload `sourceEntryIds`. |
 | `sourceSnapshot` | `Json?` | Immutable generation-time entry text and artifact-caption snapshot. |
 | `unsupportedClaims` | `Json?` | Deterministic unsupported-fact findings. |
 | `createdAt`, `updatedAt` | `DateTime` | Timestamps. |
 
-`sourceSnapshot` is deliberately denormalized historical evidence. It must not be rebuilt from current `support_form_entries`, because later source edits/deletions must not alter the factual record of what the AI received at generation time.
+`sourceSnapshot` is deliberately denormalized historical evidence. It may contain Soldier accomplishments, rater observations, reviewed upload facts, artifact captions, goal context, observation author/timestamps, and counseling release state. It must not be rebuilt from current source rows, because later source edits/deletions must not alter the factual record of what the AI received at generation time.
 
 ## Important database rules and boundaries
 

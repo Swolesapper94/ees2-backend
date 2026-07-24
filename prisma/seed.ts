@@ -340,6 +340,8 @@ async function main() {
   ]);
 
   // ── Support Form — SGT Davis ───────────────────────────────────
+  await prisma.goal.deleteMany({ where: { supportFormId: "dev-sf-davis" } });
+  await prisma.supportFormEntryArtifact.deleteMany({ where: { entry: { supportFormId: "dev-sf-davis" } } });
   const davisSupportForm = await prisma.supportForm.upsert({
     where: { id: "dev-sf-davis" },
     update: {
@@ -509,6 +511,62 @@ async function main() {
     },
   });
 
+  const davisEntries = await prisma.supportFormEntry.findMany({
+    where: { supportFormId: davisSupportForm.id, entryType: "ACCOMPLISHMENT" },
+    orderBy: { createdAt: "asc" },
+  });
+  const davisEntryBySection = new Map(davisEntries.map((entry) => [entry.section, entry]));
+
+  const [presenceGoal, leadsGoal, developsGoal] = await Promise.all([
+    prisma.goal.upsert({
+      where: { id: "dev-goal-davis-presence" },
+      update: { supportFormId: davisSupportForm.id, title: "Sustain elite physical readiness", description: "Maintain an ACFT score above 500 and complete Air Assault qualification while setting the fitness example for the team.", category: "PERSONAL_DEVELOPMENT", approvalStatus: "APPROVED", approvedByRaterId: ssgJohnson.id, approvedAt: new Date("2024-07-15") },
+      create: { id: "dev-goal-davis-presence", supportFormId: davisSupportForm.id, sectionKey: "PRESENCE", title: "Sustain elite physical readiness", description: "Maintain an ACFT score above 500 and complete Air Assault qualification while setting the fitness example for the team.", category: "PERSONAL_DEVELOPMENT", targetDate: new Date("2025-05-31"), createdById: sgtDavis.id, createdByRole: "RATED_SOLDIER", approvalStatus: "APPROVED", approvedByRaterId: ssgJohnson.id, approvedAt: new Date("2024-07-15") },
+    }),
+    prisma.goal.upsert({
+      where: { id: "dev-goal-davis-leads" },
+      update: { supportFormId: davisSupportForm.id, title: "Build a disciplined, ready team", description: "Lead a four-Soldier team that meets readiness requirements and maintains a climate of dignity, discipline, and accountability.", category: "ROUTINE", approvalStatus: "APPROVED", approvedByRaterId: ssgJohnson.id, approvedAt: new Date("2024-07-15") },
+      create: { id: "dev-goal-davis-leads", supportFormId: davisSupportForm.id, sectionKey: "LEADS", title: "Build a disciplined, ready team", description: "Lead a four-Soldier team that meets readiness requirements and maintains a climate of dignity, discipline, and accountability.", category: "ROUTINE", targetDate: new Date("2025-05-31"), createdById: sgtDavis.id, createdByRole: "RATED_SOLDIER", approvalStatus: "APPROVED", approvedByRaterId: ssgJohnson.id, approvedAt: new Date("2024-07-15") },
+    }),
+    prisma.goal.upsert({
+      where: { id: "dev-goal-davis-develops" },
+      update: { supportFormId: davisSupportForm.id, title: "Develop junior Soldiers", description: "Coach junior Soldiers through technical and leadership development so they can assume greater responsibility.", category: "PERSONAL_DEVELOPMENT", approvalStatus: "APPROVED", approvedByRaterId: ssgJohnson.id, approvedAt: new Date("2024-07-15") },
+      create: { id: "dev-goal-davis-develops", supportFormId: davisSupportForm.id, sectionKey: "DEVELOPS", title: "Develop junior Soldiers", description: "Coach junior Soldiers through technical and leadership development so they can assume greater responsibility.", category: "PERSONAL_DEVELOPMENT", targetDate: new Date("2025-05-31"), createdById: sgtDavis.id, createdByRole: "RATED_SOLDIER", approvalStatus: "APPROVED", approvedByRaterId: ssgJohnson.id, approvedAt: new Date("2024-07-15") },
+    }),
+  ]);
+
+  const presenceEntry = davisEntryBySection.get("PRESENCE");
+  const leadsEntry = davisEntryBySection.get("LEADS");
+  const developsEntry = davisEntryBySection.get("DEVELOPS");
+  if (!presenceEntry || !leadsEntry || !developsEntry) throw new Error("Davis support-form accomplishment fixtures are missing.");
+
+  await Promise.all([
+    prisma.goalEntryLink.upsert({ where: { goalId_supportFormEntryId: { goalId: presenceGoal.id, supportFormEntryId: presenceEntry.id } }, update: {}, create: { goalId: presenceGoal.id, supportFormEntryId: presenceEntry.id, linkedById: sgtDavis.id, linkedByRole: "RATED_SOLDIER" } }),
+    prisma.goalEntryLink.upsert({ where: { goalId_supportFormEntryId: { goalId: leadsGoal.id, supportFormEntryId: leadsEntry.id } }, update: {}, create: { goalId: leadsGoal.id, supportFormEntryId: leadsEntry.id, linkedById: sgtDavis.id, linkedByRole: "RATED_SOLDIER" } }),
+    prisma.goalEntryLink.upsert({ where: { goalId_supportFormEntryId: { goalId: developsGoal.id, supportFormEntryId: developsEntry.id } }, update: {}, create: { goalId: developsGoal.id, supportFormEntryId: developsEntry.id, linkedById: sgtDavis.id, linkedByRole: "RATED_SOLDIER" } }),
+    prisma.supportFormEntryArtifact.upsert({ where: { id: "dev-artifact-davis-acft" }, update: { entryId: presenceEntry.id, type: "SCORE_SHEET", fileUrl: "/demo-artifacts/davis-acft-scorecard.svg", fileType: "image", aiCaption: "DEMO score sheet: SGT James Davis scored 540 on the ACFT on 09 DEC 2024.", aiCaptionStatus: "COMPLETE", aiCaptionError: null, flaggedByServiceMember: false, flagNote: null }, create: { id: "dev-artifact-davis-acft", entryId: presenceEntry.id, type: "SCORE_SHEET", fileUrl: "/demo-artifacts/davis-acft-scorecard.svg", fileType: "image", aiCaption: "DEMO score sheet: SGT James Davis scored 540 on the ACFT on 09 DEC 2024.", aiCaptionStatus: "COMPLETE" } }),
+    prisma.supportFormEntryArtifact.upsert({ where: { id: "dev-artifact-davis-air-assault" }, update: { entryId: presenceEntry.id, type: "CERTIFICATE", fileUrl: "/demo-artifacts/davis-air-assault-certificate.svg", fileType: "image", aiCaption: "DEMO certificate: SGT James Davis completed Air Assault training as an honor graduate on 12 DEC 2024.", aiCaptionStatus: "COMPLETE", aiCaptionError: null, flaggedByServiceMember: false, flagNote: null }, create: { id: "dev-artifact-davis-air-assault", entryId: presenceEntry.id, type: "CERTIFICATE", fileUrl: "/demo-artifacts/davis-air-assault-certificate.svg", fileType: "image", aiCaption: "DEMO certificate: SGT James Davis completed Air Assault training as an honor graduate on 12 DEC 2024.", aiCaptionStatus: "COMPLETE" } }),
+  ]);
+
+  const davisQuarterlyCounseling = await prisma.counselingSession.upsert({
+    where: { id: "dev-counseling-davis-q1" },
+    update: { ratingChainId: davisChain.id, type: "QUARTERLY", sessionDate: new Date("2025-03-12"), notes: "Reviewed team readiness, junior leader development, and Davis's physical readiness goals." },
+    create: { id: "dev-counseling-davis-q1", ratingChainId: davisChain.id, type: "QUARTERLY", sessionDate: new Date("2025-03-12"), notes: "Reviewed team readiness, junior leader development, and Davis's physical readiness goals." },
+  });
+
+  await Promise.all([
+    prisma.performanceObservation.upsert({
+      where: { id: "dev-observation-davis-leads-released" },
+      update: { supportFormId: davisSupportForm.id, ratedSoldierId: sgtDavis.id, observerId: ssgJohnson.id, goalId: leadsGoal.id, sectionKey: "LEADS", feedbackType: "POSITIVE", factualNote: "Observed Davis correct range-control deficiencies during live-fire rehearsals and coach two junior leaders through PCC/PCI standards before the final iteration.", tags: ["live-fire", "leader-development"], occurredAt: new Date("2025-03-05"), releaseState: "RELEASED_IN_COUNSELING", discussedAt: new Date("2025-03-12"), discussedInCounselingSessionId: davisQuarterlyCounseling.id },
+      create: { id: "dev-observation-davis-leads-released", supportFormId: davisSupportForm.id, ratedSoldierId: sgtDavis.id, observerId: ssgJohnson.id, goalId: leadsGoal.id, sectionKey: "LEADS", feedbackType: "POSITIVE", factualNote: "Observed Davis correct range-control deficiencies during live-fire rehearsals and coach two junior leaders through PCC/PCI standards before the final iteration.", tags: ["live-fire", "leader-development"], occurredAt: new Date("2025-03-05"), releaseState: "RELEASED_IN_COUNSELING", discussedAt: new Date("2025-03-12"), discussedInCounselingSessionId: davisQuarterlyCounseling.id },
+    }),
+    prisma.performanceObservation.upsert({
+      where: { id: "dev-observation-davis-develops-private" },
+      update: { supportFormId: davisSupportForm.id, ratedSoldierId: sgtDavis.id, observerId: ssgJohnson.id, goalId: developsGoal.id, sectionKey: "DEVELOPS", feedbackType: "DEVELOPMENTAL", factualNote: "Observed Davis delegate equipment-layout coaching effectively, but follow-up feedback to the junior Soldier was delayed until after the training event.", tags: ["delegation", "follow-up"], occurredAt: new Date("2025-04-02"), releaseState: "PRIVATE_TO_RATER", discussedAt: null, discussedInCounselingSessionId: null },
+      create: { id: "dev-observation-davis-develops-private", supportFormId: davisSupportForm.id, ratedSoldierId: sgtDavis.id, observerId: ssgJohnson.id, goalId: developsGoal.id, sectionKey: "DEVELOPS", feedbackType: "DEVELOPMENTAL", factualNote: "Observed Davis delegate equipment-layout coaching effectively, but follow-up feedback to the junior Soldier was delayed until after the training event.", tags: ["delegation", "follow-up"], occurredAt: new Date("2025-04-02"), releaseState: "PRIVATE_TO_RATER" },
+    }),
+  ]);
+
   // ── TEST NCOER — SGT Davis (DRAFT) ────────────────────────────
   const davisEval = await prisma.evaluation.upsert({
     where: { id: "dev-eval-davis" },
@@ -546,8 +604,107 @@ async function main() {
     },
   });
 
+  const returnedJohnsonNcoer = await prisma.evaluation.upsert({
+    where: { id: "dev-eval-johnson-returned" },
+    update: {
+      ratingChainId: johnsonChain.id,
+      formType: "NCOER_9_2",
+      status: "RETURNED",
+      submittedAt: new Date("2026-06-20T14:30:00Z"),
+      acceptedAt: null,
+    },
+    create: {
+      id: "dev-eval-johnson-returned",
+      ratingChainId: johnsonChain.id,
+      formType: "NCOER_9_2",
+      status: "RETURNED",
+      periodStart: new Date("2025-06-01"),
+      periodEnd: new Date("2026-05-31"),
+      ratedMonths: 12,
+      nonRatedMonths: 0,
+      reasonForSubmission: "Annual",
+      statusCode: "00",
+      numberOfEnclosures: 0,
+      principalDutyTitle: "Squad Leader",
+      dutyMosc: "11B3O",
+      dailyDutiesScope: "Leads and trains a rifle squad; responsible for readiness, counseling, discipline, and tactical employment of assigned Soldiers.",
+      areasOfSpecialEmphasis: "Counseling compliance, weapons readiness, and junior leader development.",
+      appointedDuties: "Company master fitness trainer alternate.",
+      seniorRaterRating: "HIGHLY_QUALIFIED",
+      submittedAt: new Date("2026-06-20T14:30:00Z"),
+    },
+  });
+
+  const returnedTorresOer = await prisma.evaluation.upsert({
+    where: { id: "dev-eval-torres-returned" },
+    update: {
+      ratingChainId: torresChain.id,
+      formType: "OER_67_10_1",
+      status: "RETURNED",
+      submittedAt: new Date("2026-06-24T16:10:00Z"),
+      acceptedAt: null,
+    },
+    create: {
+      id: "dev-eval-torres-returned",
+      ratingChainId: torresChain.id,
+      formType: "OER_67_10_1",
+      status: "RETURNED",
+      periodStart: new Date("2025-06-01"),
+      periodEnd: new Date("2026-05-31"),
+      ratedMonths: 12,
+      nonRatedMonths: 0,
+      reasonForSubmission: "Annual",
+      statusCode: "00",
+      numberOfEnclosures: 1,
+      principalDutyTitle: "Platoon Leader",
+      dutyMosc: "11A",
+      dailyDutiesScope: "Leads a rifle platoon and synchronizes training, maintenance, and Soldier readiness with company priorities.",
+      areasOfSpecialEmphasis: "Training management, property accountability, and counseling documentation.",
+      appointedDuties: "Company training officer.",
+      seniorRaterRating: "QUALIFIED",
+      submittedAt: new Date("2026-06-24T16:10:00Z"),
+    },
+  });
+
+  await Promise.all([
+    prisma.evaluationReturn.upsert({
+      where: { id: "dev-return-johnson-admin-error" },
+      update: {
+        evaluationId: returnedJohnsonNcoer.id,
+        returnReason: "ADMIN_ERROR",
+        returnedAt: new Date("2026-06-26T09:20:00Z"),
+        notes: "Part I rated months did not match the THRU date; verify non-rated time and resubmit.",
+        resolvedAt: null,
+      },
+      create: {
+        id: "dev-return-johnson-admin-error",
+        evaluationId: returnedJohnsonNcoer.id,
+        returnReason: "ADMIN_ERROR",
+        returnedAt: new Date("2026-06-26T09:20:00Z"),
+        notes: "Part I rated months did not match the THRU date; verify non-rated time and resubmit.",
+      },
+    }),
+    prisma.evaluationReturn.upsert({
+      where: { id: "dev-return-torres-missing-signature" },
+      update: {
+        evaluationId: returnedTorresOer.id,
+        returnReason: "MISSING_SIGNATURE",
+        returnedAt: new Date("2026-06-27T10:45:00Z"),
+        notes: "Senior rater signature block was missing from the submitted OER packet.",
+        resolvedAt: null,
+      },
+      create: {
+        id: "dev-return-torres-missing-signature",
+        evaluationId: returnedTorresOer.id,
+        returnReason: "MISSING_SIGNATURE",
+        returnedAt: new Date("2026-06-27T10:45:00Z"),
+        notes: "Senior rater signature block was missing from the submitted OER packet.",
+      },
+    }),
+  ]);
+
   console.log(
-    "✅ Seed complete: 5 dev personas + 3 rating chains + 1 test evaluation"
+    "✅ Seed complete: 5 dev personas + 3 rating chains + 3 test evaluations"
   );
   console.log(
     "  Users: CPT Smith, SSG Johnson, SGT Davis, 1LT Torres, SFC Williams"
@@ -556,6 +713,7 @@ async function main() {
     "  Chains: Davis (SSG Johnson rater, SFC Williams SR), Johnson, Torres"
   );
   console.log("  Evaluation: dev-eval-davis (DRAFT status, ready for rater)");
+  console.log("  Returned examples: dev-eval-johnson-returned (NCOER), dev-eval-torres-returned (OER)");
 }
 
 main()

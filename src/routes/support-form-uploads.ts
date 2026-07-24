@@ -24,7 +24,7 @@ import {
   generateBulletsFromEntries,
   generateBulletsFromReviewedUpload,
 } from "@/lib/ai/support-form-pipeline";
-import { requireEvalChainRole, requireEntriesBelongToEval } from "@/lib/utils/chain-auth";
+import { requireEvalChainRole, requireEntriesBelongToEval, requireObservationsBelongToEval } from "@/lib/utils/chain-auth";
 import { checkUnsupportedFacts } from "@/lib/ai/unsupported-fact-check";
 import { sanitizeBulletText } from "@/lib/ai/openai";
 
@@ -76,8 +76,9 @@ const fromEntriesSchema = z.object({
     "DEVELOPS",
     "ACHIEVES",
   ]),
-  entryIds: z.array(z.string().min(1)).min(1),
-});
+  entryIds: z.array(z.string().min(1)).default([]),
+  observationIds: z.array(z.string().min(1)).default([]),
+}).refine((value) => value.entryIds.length + value.observationIds.length > 0, "Select at least one accomplishment or observation.");
 
 const reviewedFactsGenerationSchema = z.object({
   sectionKey: z.enum([
@@ -598,45 +599,74 @@ supportFormUploadsRouter.post(
     // Re-authorize: reject any entryId that doesn't belong to this
     // evaluation's linked support form (previously trusted client input
     // outright — confirmed cross-soldier generation gap, MVP audit 5.6).
-    const authorizedEntries = await requireEntriesBelongToEval(evalId, body.entryIds);
+    const [authorizedEntries, authorizedObservations] = await Promise.all([
+      requireEntriesBelongToEval(evalId, body.entryIds),
+      requireObservationsBelongToEval(evalId, body.observationIds),
+    ]);
 
     const { bullets, hasFlaggedArtifacts } = await generateBulletsFromEntries({
       evaluationId: evalId,
       sectionKey: body.sectionKey,
       entryIds: body.entryIds,
+      observationIds: body.observationIds,
       soldierInfo,
     });
 
     // Immutable snapshot of the source text at generation time (MVP audit
     // 5.1/5.9) — survives later edits/deletes of the underlying entries.
-    const sourceSnapshot = authorizedEntries.map((e) => ({
-      entryId: e.id,
-      rawText: e.rawText,
-      artifactCaptions: e.artifacts
-        .filter((a) => a.aiCaptionStatus === "COMPLETE" && a.aiCaption)
-        .map((a) => a.aiCaption as string),
-    }));
+    const sourceSnapshot = [
+      ...authorizedEntries.map((e) => ({
+        sourceType: "SUPPORT_FORM_ENTRY",
+        entryId: e.id,
+        sourceId: e.id,
+        sourceLabel: "Soldier accomplishment",
+        occurredAt: e.entryDate,
+        rawText: e.rawText,
+        artifactCaptions: e.artifacts
+          .filter((a) => a.aiCaptionStatus === "COMPLETE" && a.aiCaption)
+          .map((a) => a.aiCaption as string),
+      })),
+      ...authorizedObservations.map((observation) => ({
+        sourceType: "PERFORMANCE_OBSERVATION",
+        entryId: observation.id,
+        sourceId: observation.id,
+        sourceLabel: `${observation.observer.rank} ${observation.observer.lastName} observation`,
+        occurredAt: observation.occurredAt,
+        rawText: observation.factualNote,
+        artifactCaptions: [],
+        goal: observation.goal ? { id: observation.goal.id, title: observation.goal.title, description: observation.goal.description } : null,
+        counselingState: observation.releaseState,
+        discussedAt: observation.discussedAt,
+      })),
+    ];
     const sourceFacts = sourceSnapshot.flatMap((s) => [s.rawText, ...s.artifactCaptions]);
+    const evidenceReferences = [
+      ...authorizedEntries.map((entry) => ({ kind: "SUPPORT_FORM_ENTRY", id: entry.id })),
+      ...authorizedObservations.map((observation) => ({ kind: "PERFORMANCE_OBSERVATION", id: observation.id })),
+    ];
 
-    const created = await prisma.aIBulletSuggestion.createMany({
-      data: bullets
+    const suggestions = await Promise.all(
+      bullets
         .filter((b) => b.text)
-        .map((b) => {
+        .map(async (b) => {
           const cleanText = sanitizeBulletText(b.text);
-          return {
-            evaluationId: evalId,
-            sectionKey: body.sectionKey as never,
-            text: cleanText.slice(0, 300),
-            confidence: (b.confidence ?? "MEDIUM") as never,
-            rank: b.rank ?? 1,
-            status: "PENDING_REVIEW" as never,
-            sourceEntryIds: body.entryIds,
-            sourceSnapshot: sourceSnapshot as never,
-            // Deterministic, advisory-only warning (MVP audit 5.10) — never blocks.
-            unsupportedClaims: checkUnsupportedFacts(cleanText, sourceFacts) as never,
-          };
+          return prisma.aIBulletSuggestion.create({
+            data: {
+              evaluationId: evalId,
+              sectionKey: body.sectionKey as never,
+              text: cleanText.slice(0, 300),
+              confidence: (b.confidence ?? "MEDIUM") as never,
+              rank: b.rank ?? 1,
+              status: "PENDING_REVIEW" as never,
+              sourceEntryIds: body.entryIds,
+              evidenceReferences: evidenceReferences as never,
+              sourceSnapshot: sourceSnapshot as never,
+              // Deterministic, advisory-only warning (MVP audit 5.10) — never blocks.
+              unsupportedClaims: checkUnsupportedFacts(cleanText, sourceFacts) as never,
+            },
+          });
         }),
-    });
+    );
 
     // Best-effort: mark entries as used by this evaluation (visibility only —
     // does not block reuse across sections or evaluations).
@@ -645,17 +675,7 @@ supportFormUploadsRouter.post(
       data: { usedInEvalId: evalId },
     });
 
-    const suggestions = await prisma.aIBulletSuggestion.findMany({
-      where: {
-        evaluationId: evalId,
-        sectionKey: body.sectionKey as never,
-        status: "PENDING_REVIEW",
-        sourceEntryIds: { hasSome: body.entryIds },
-      },
-      orderBy: { rank: "asc" },
-    });
-
-    res.json({ count: created.count, suggestions, hasFlaggedArtifacts });
+    res.json({ count: suggestions.length, suggestions, hasFlaggedArtifacts });
   }),
 );
 
@@ -755,6 +775,7 @@ supportFormUploadsRouter.patch(
             [String(newIndex)]: {
               suggestionId: suggestion.id,
               sourceEntryIds: suggestion.sourceEntryIds,
+              evidenceReferences: suggestion.evidenceReferences,
               sourceSnapshot: suggestion.sourceSnapshot,
             },
           };
