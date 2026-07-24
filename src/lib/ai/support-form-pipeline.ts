@@ -615,6 +615,13 @@ ${args.raterDescription}
 
 Write 5 evaluation bullet candidates for ${formLabel}. Rank best to worst.
 Each bullet: action verb, action-impact format, no pronouns, ≤200 chars.
+Do not just add punctuation or lightly reorder the rater's own words — fully
+restructure the description into Army bullet grammar and frame it against the
+SECTION DEFINITION above. If the description already names a number, unit
+size, score, date, or award, keep it exactly (never round up or invent a new
+one); if it doesn't, write an honestly smaller, specific bullet rather than a
+generic one. Vary the 5 candidates by which real detail or angle from the
+description each one emphasizes — do not just reorder the same sentence five ways.
 Output JSON only: [{ "rank": 1, "text": "...", "confidence": "HIGH|MEDIUM|LOW" }]`;
 
   const response = await callOpenAIForJson<unknown>({

@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import { Router } from "express";
+import type { UserRole } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { validateRatingSchemeCoverage, validateSchemeAssignments } from "@/lib/rating-scheme-validation";
@@ -8,7 +9,7 @@ import {
   canApproveRatingScheme, canCreateRatingSchemeDraft, canEditRatingSchemeDraft,
   canManageRatingSchemeDelegates, canPublishRatingScheme, canSubmitRatingScheme,
   canViewDraftRatingScheme, canViewPublishedRatingScheme, canViewRatingSchemeAudit,
-  approvalBattalionIdForUnit, canInspectUnitRatingScheme, currentCommander,
+  approvalBattalionIdForUnit, canInspectUnitRatingScheme, canViewUnitRatingSchemeFormation, currentCommander,
 } from "@/lib/rating-scheme-policy";
 import { asyncHandler, HttpError } from "@/middleware/error";
 import { requireAuth } from "@/middleware/auth";
@@ -31,7 +32,7 @@ const delegationInput = z.object({
 const assignmentInclude = { ratedSoldier: true, rater: true, intermediateRater: true, seniorRater: true, supplementaryReviewer: true, unit: true } as const;
 const schemeInclude = { unit: true, battalion: true, createdBy: true, submittedBy: true, approvedBy: true, publishedBy: true, assignments: { include: assignmentInclude, orderBy: { effectiveFrom: "asc" } } } as const;
 
-function requireUser(req: { user?: { id: string; unitId: string | null } }) {
+function requireUser(req: { user?: { id: string; unitId: string | null; roles: UserRole[] } }) {
   if (!req.user) throw new HttpError(401, "Not authenticated");
   return req.user;
 }
@@ -58,11 +59,29 @@ async function validateScheme(scheme: Awaited<ReturnType<typeof loadScheme>>) {
   ];
 }
 
-async function withCapabilities(actor: { id: string; unitId: string | null }, scheme: Awaited<ReturnType<typeof loadScheme>>) {
-  const coverage = await ratingSchemePopulation(scheme.unitId, scheme.assignments.map((assignment) => assignment.ratedSoldierId));
+function isAssignmentParticipant(actorId: string, assignment: Awaited<ReturnType<typeof loadScheme>>["assignments"][number]) {
+  return [
+    assignment.ratedSoldierId,
+    assignment.raterId,
+    assignment.intermediateRaterId,
+    assignment.seniorRaterId,
+    assignment.supplementaryReviewerId,
+  ].includes(actorId);
+}
+
+async function withCapabilities(actor: { id: string; unitId: string | null; roles: UserRole[] }, scheme: Awaited<ReturnType<typeof loadScheme>>) {
+  const canViewFormation = await canViewUnitRatingSchemeFormation(actor, scheme.unitId);
+  const assignments = canViewFormation
+    ? scheme.assignments
+    : scheme.assignments.filter((assignment) => isAssignmentParticipant(actor.id, assignment));
+  const coverage = canViewFormation
+    ? await ratingSchemePopulation(scheme.unitId, scheme.assignments.map((assignment) => assignment.ratedSoldierId))
+    : { eligiblePersonnel: [], unassignedPersonnel: [] };
   return {
     ...scheme,
+    assignments,
     coverage,
+    viewScope: canViewFormation ? "FORMATION" : "OWN_RATING_CHAIN",
     capabilities: {
       createDraft: await canCreateRatingSchemeDraft(actor, scheme.battalionId),
       editDraft: await canEditRatingSchemeDraft(actor, scheme),
@@ -162,7 +181,9 @@ ratingSchemesRouter.get("/:id", requireAuth, asyncHandler(async (req, res) => {
 ratingSchemesRouter.get("/:id/assignments", requireAuth, asyncHandler(async (req, res) => {
   const actor = requireUser(req); const scheme = await loadScheme(req.params.id);
   const allowed = scheme.status === "PUBLISHED" || scheme.status === "SUPERSEDED" ? await canViewPublishedRatingScheme(actor, scheme) : await canViewDraftRatingScheme(actor, scheme);
-  if (!allowed) throw new HttpError(403, "You are not authorized to view these assignments"); res.json(scheme.assignments);
+  if (!allowed) throw new HttpError(403, "You are not authorized to view these assignments");
+  const canViewFormation = await canViewUnitRatingSchemeFormation(actor, scheme.unitId);
+  res.json(canViewFormation ? scheme.assignments : scheme.assignments.filter((assignment) => isAssignmentParticipant(actor.id, assignment)));
 }));
 
 ratingSchemesRouter.get("/:id/candidates", requireAuth, asyncHandler(async (req, res) => {

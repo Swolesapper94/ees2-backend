@@ -1,7 +1,7 @@
 import { AdministrativeScopeType, RatingSchemeDelegationPermission, RatingSchemeStatus, type RatingScheme, type User } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
-type Actor = Pick<User, "id" | "unitId">;
+type Actor = Pick<User, "id" | "unitId" | "roles">;
 
 export async function approvalBattalionIdForUnit(unitId: string): Promise<string> {
   const initialUnit = await prisma.unit.findUnique({ where: { id: unitId }, select: { id: true, parentId: true } });
@@ -64,6 +64,15 @@ async function hasServicingScope(actor: Actor, battalionId: string) {
 
 export async function canInspectUnitRatingScheme(actor: Actor, unitId: string) {
   if (actor.unitId === unitId || await hasServicingScope(actor, unitId)) return true;
+  const battalionId = await approvalBattalionIdForUnit(unitId);
+  return (await currentCommander(battalionId))?.commanderUserId === actor.id;
+}
+
+export async function canViewUnitRatingSchemeFormation(actor: Actor, unitId: string) {
+  // COMMANDER grants read-only visibility into the caller's immediate-unit scheme.
+  // Draft, approval, and publication still require the more specific command or delegation records.
+  if (actor.unitId === unitId && Array.isArray(actor.roles) && actor.roles.includes("COMMANDER")) return true;
+  if (await hasServicingScope(actor, unitId)) return true;
   const battalionId = await approvalBattalionIdForUnit(unitId);
   return (await currentCommander(battalionId))?.commanderUserId === actor.id;
 }

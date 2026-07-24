@@ -379,21 +379,29 @@ supportFormUploadsRouter.get(
     const { evalId } = req.params;
     if (!evalId) throw new HttpError(400, "Missing evalId.");
 
-    const latestUpload = await prisma.supportFormUpload.findFirst({
-      where: { evaluationId: evalId },
-      orderBy: { createdAt: "desc" },
-      include: {
-        bulletSuggestions: {
-          orderBy: [{ sectionKey: "asc" }, { rank: "asc" }],
+    // Suggestions are fetched evaluation-wide, not through the upload's own
+    // relation: "generate from scratch" and "generate from entries" create
+    // suggestions with uploadId: null, so they were never a document upload's
+    // child row. Scoping this query to latestUpload.bulletSuggestions silently
+    // hid every non-upload suggestion the moment the page reloaded.
+    const [latestUpload, bulletSuggestions] = await Promise.all([
+      prisma.supportFormUpload.findFirst({
+        where: { evaluationId: evalId },
+        orderBy: { createdAt: "desc" },
+        include: {
+          extractedEntries: {
+            orderBy: { section: "asc" },
+          },
         },
-        extractedEntries: {
-          orderBy: { section: "asc" },
-        },
-      },
-    });
+      }),
+      prisma.aIBulletSuggestion.findMany({
+        where: { evaluationId: evalId },
+        orderBy: [{ sectionKey: "asc" }, { rank: "asc" }],
+      }),
+    ]);
 
     if (!latestUpload) {
-      res.json({ hasUpload: false });
+      res.json({ hasUpload: false, bulletSuggestions });
       return;
     }
 
@@ -406,7 +414,7 @@ supportFormUploadsRouter.get(
       parseStatus: latestUpload.parseStatus,
       parseError: latestUpload.parseError,
       extractedEntries: latestUpload.extractedEntries,
-      bulletSuggestions: latestUpload.bulletSuggestions,
+      bulletSuggestions,
     });
   }),
 );
@@ -544,25 +552,38 @@ supportFormUploadsRouter.post(
       { entryId: "scratch", rawText: body.raterDescription, artifactCaptions: [] as string[] },
     ];
 
-    // Persist as suggestions
-    const created = await prisma.aIBulletSuggestion.createMany({
-      data: bullets
-        .filter((b) => b.text)
-        .map((b) => {
-          const cleanText = sanitizeBulletText(b.text);
-          return {
-            evaluationId: evalId,
-            sectionKey: body.sectionKey as never,
-            text: cleanText.slice(0, 300),
-            confidence: (b.confidence ?? "MEDIUM") as never,
-            rank: b.rank ?? 1,
-            status: "PENDING_REVIEW" as never,
-            sourceEntryIds: [],
-            sourceSnapshot: sourceSnapshot as never,
-            unsupportedClaims: checkUnsupportedFacts(cleanText, [body.raterDescription]) as never,
-          };
-        }),
-    });
+    // A new generation run replaces this section's undecided/rejected
+    // candidates from the prior run rather than piling up alongside them.
+    // Accepted/edited suggestions are never touched here — they already
+    // became final bullets and keep their permanent provenance record.
+    const [, created] = await prisma.$transaction([
+      prisma.aIBulletSuggestion.deleteMany({
+        where: {
+          evaluationId: evalId,
+          sectionKey: body.sectionKey as never,
+          uploadId: null,
+          status: { in: ["PENDING_REVIEW", "REJECTED"] },
+        },
+      }),
+      prisma.aIBulletSuggestion.createMany({
+        data: bullets
+          .filter((b) => b.text)
+          .map((b) => {
+            const cleanText = sanitizeBulletText(b.text);
+            return {
+              evaluationId: evalId,
+              sectionKey: body.sectionKey as never,
+              text: cleanText.slice(0, 300),
+              confidence: (b.confidence ?? "MEDIUM") as never,
+              rank: b.rank ?? 1,
+              status: "PENDING_REVIEW" as never,
+              sourceEntryIds: [],
+              sourceSnapshot: sourceSnapshot as never,
+              unsupportedClaims: checkUnsupportedFacts(cleanText, [body.raterDescription]) as never,
+            };
+          }),
+      }),
+    ]);
 
     // Return the newly created suggestions
     const suggestions = await prisma.aIBulletSuggestion.findMany({
@@ -644,6 +665,19 @@ supportFormUploadsRouter.post(
       ...authorizedEntries.map((entry) => ({ kind: "SUPPORT_FORM_ENTRY", id: entry.id })),
       ...authorizedObservations.map((observation) => ({ kind: "PERFORMANCE_OBSERVATION", id: observation.id })),
     ];
+
+    // Same replace-not-append rule as generate-scratch: clear this section's
+    // undecided/rejected candidates from the prior run before adding the new
+    // batch. Accepted/edited suggestions already became final bullets and are
+    // never deleted.
+    await prisma.aIBulletSuggestion.deleteMany({
+      where: {
+        evaluationId: evalId,
+        sectionKey: body.sectionKey as never,
+        uploadId: null,
+        status: { in: ["PENDING_REVIEW", "REJECTED"] },
+      },
+    });
 
     const suggestions = await Promise.all(
       bullets
