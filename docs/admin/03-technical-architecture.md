@@ -1,12 +1,12 @@
 # 03 — Technical Architecture
 
-> The engineering view: stack, structure, data model, and how a request flows end to end. For the functional view, see [02 — System Overview](./02-system-overview.md).
+> The engineering view: stack, structure, data model, and how a request flows end to end. For the functional view, see [01 - Product Overview](./01-product-overview.md).
 
 ---
 
 ## 1. High-level shape
 
-EES 2.0 is a **split-stack** web application — two independently deployable applications that talk over a typed HTTP API.
+MERIT is a **split-stack** web application — two independently deployable applications that talk over a typed HTTP API.
 
 ```
 ┌─────────────────────────┐         HTTPS + Bearer token        ┌──────────────────────────┐
@@ -25,7 +25,7 @@ EES 2.0 is a **split-stack** web application — two independently deployable ap
                     ▼                                             ▼                        ▼
           ┌──────────────────┐                        ┌────────────────────┐   ┌────────────────────┐
           │ OpenAI API       │                        │  Supabase Storage  │   │  @react-pdf/renderer│
-          │  (AI generation) │                        │ (artifacts/uploads)│   │  (DA-form PDFs)     │
+          │ (MERIT provider) │                        │ (artifacts/uploads)│   │  (DA-form PDFs)     │
           └──────────────────┘                        └────────────────────┘   └────────────────────┘
 ```
 
@@ -56,7 +56,7 @@ EES 2.0 is a **split-stack** web application — two independently deployable ap
 | ORM | **Prisma 6** |
 | Database | **PostgreSQL** (hosted via Supabase) |
 | Auth verification | `@supabase/supabase-js` service-role client verifies incoming JWTs |
-| AI | `openai` — configured OpenAI model for text and vision |
+| MERIT assistance provider | `openai` — configured OpenAI model for text and vision |
 | PDF | `@react-pdf/renderer` — renders official DA forms server-side |
 | File parsing | `pdf-parse` (PDF text), OpenAI vision (images/handwriting) |
 | Uploads | `multer` (in-memory) → Supabase Storage |
@@ -125,7 +125,7 @@ The Prisma schema currently defines **37 models** and **53 enums**. This section
 ### Continuous performance capture
 - **`SupportForm`** — a rating-period performance log, anchored to a legacy `RatingChain` or a versioned `RatingSchemeAssignment` during transition. It carries explicit lifecycle (`DRAFT` through `CONSUMED`, plus archive/quarantine), disposition, initiator, version, and consumption metadata as well as `evalCategory` and completeness fields.
 - **`SupportFormEntry`** — one logged accomplishment, tagged to a `SectionKey` (one of the six dimensions). New entries must be `ACCOMPLISHMENT`; the `OBJECTIVE` `EntryType` value is retained only for legacy entries created before goals became a standalone model — new objective-entry creation is rejected with `OBJECTIVE_ENTRY_DEPRECATED`. It records creator, role at creation, last editor, source version, and confirmation lock metadata. A rater or senior rater may confirm, request clarification, or mark an entry not used; a supplementary reviewer may not.
-- **`SupportFormEntryArtifact`** — proof attached to an entry: `type` (Certificate/Score Sheet/Photo/Document/Other), the stored file, an AI-generated `aiCaption` (+ status), and a soldier self-attestation flag (`flaggedByServiceMember` + note) for iPERMS-discrepancy transparency.
+- **`SupportFormEntryArtifact`** — proof attached to an entry: `type` (Certificate/Score Sheet/Photo/Document/Other), the stored file, a MERIT-generated `aiCaption` (+ status), and a Soldier self-attestation flag (`flaggedByServiceMember` + note) for iPERMS-discrepancy transparency.
 - **`Goal` / `GoalEntryLink`** — the forward-looking counterpart to an accomplishment. A goal is Soldier-authored, tagged to a dimension, and moves through an explicit approval status (`DRAFT` → `PENDING_RATER_REVIEW` → `APPROVED` / `NEEDS_REVISION`) with the assigned rater as approver. Soldier and rater each record their own progress assessment. `GoalEntryLink` traces an accomplishment to the goal(s) it supports; a goal is never itself treated as evidence that something happened. A goal can be carried forward into a successor support form via `carriedForwardFromGoalId`, which always creates a new record rather than mutating the prior period's goal.
 - **`PerformanceObservation`** — a rater-owned factual note, deliberately separate from a soldier-authored `SupportFormEntry`. It is private to the assigned rater (`releaseState = PRIVATE_TO_RATER`) until discussed in counseling and released (`RELEASED_IN_COUNSELING`); only the assigned rater may author, edit, delete, or release one. It optionally links to an approved `Goal` for traceability and to the `CounselingSession` where it was released, but release never rewrites its original author, note, or occurrence timestamp.
 - **`CounselingSession`** — recorded initial/quarterly counseling (feeds compliance analytics and the DA-form Part II dates). It also carries an optional `officialRecordReference` / `officialRecordUrl` so the in-app counseling-preparation workspace can point back to the completed official DA Form 4856 or unit record, rather than generating a second official counseling narrative.
@@ -134,13 +134,13 @@ The Prisma schema currently defines **37 models** and **53 enums**. This section
 - **`Evaluation`** — the official NCOER/OER. Links to its legacy chain during the migration and, for assignment-backed creation, has one immutable `EvaluationRatingSnapshot` recording the approved officials, ranks, categories, form category, and policy exception at creation. It also has an explicit active/quarantined/archived disposition. Status is **automatically derived** from real section-completion and signature state.
 - **`EvaluationRatingSnapshot`** — the immutable authorization source for a new evaluation. A later assignment revision cannot change who can see, edit, or review an existing evaluation.
 - **`Delegate` / access grant** — the compatibility-preserved `delegates` table now supports explicit grant type, lifecycle state, resource scope, effective period, subject, and `DelegationCapabilityGrant` rows. It is not a role and never modifies a rating chain or evaluation snapshot.
-- **`EvalSection`** — one section of the form (the six Part IV dimensions plus overalls): rating value, final bullets, `bulletSources` (a per-bullet provenance label — `HUMAN` / `AI_MODIFIED` / `AI_UNMODIFIED`), `bulletProvenance` (the full chain from a final bullet back to its originating AI suggestion, the source entries, and the evidence snapshot used to generate it), completion state.
+- **`EvalSection`** — one section of the form (the six Part IV dimensions plus overalls): rating value, final bullets, `bulletSources` (internal labels `HUMAN` / `AI_MODIFIED` / `AI_UNMODIFIED`), `bulletProvenance` (the full chain from final MERIT-assisted content to its originating suggestion, source entries, and generation-time snapshot), completion state.
 - **`SeniorRaterProfile`** — the senior rater's cumulative "most qualified" distribution, used to enforce the profile cap.
 - **`Signature`** — a role's signature with `nameConfirmation`, IP/user-agent, optional CAC/PKI fields, and a content hash for stale detection.
 - **`EvaluationReturn`** — a record of an HRC/chain return with reason.
 
-### AI & audit
-- **`AIBulletSuggestion`** — every AI-drafted bullet candidate, whether generated from selected support-form entries, rater observations, a rater's free-text description, or the whole-document upload pipeline. Carries rank, confidence, and review status (`PENDING_REVIEW` → `ACCEPTED` / `EDITED` / `REJECTED`), plus integrity fields captured **at generation time**: a typed `evidenceReferences` array (`SUPPORT_FORM_ENTRY` vs. `PERFORMANCE_OBSERVATION`, so an observation ID is never overloaded onto `sourceEntryIds`), an **immutable source snapshot** (the exact entry/observation text and artifact captions the bullet was drafted from — a later edit or deletion of the source can never retroactively rewrite this history), and any **unsupported-fact warnings** (see §6).
+### MERIT assistance and audit
+- **`AIBulletSuggestion`** — the internal persistence model for every MERIT-generated candidate, whether generated from selected support-form entries, rater observations, a rater's free-text description, or the whole-document upload pipeline. It carries rank, confidence, review status (`PENDING_REVIEW` → `ACCEPTED` / `EDITED` / `REJECTED`), typed `evidenceReferences`, an immutable source snapshot, and unsupported-fact warnings. The internal model name is retained for schema/API compatibility; the product calls these MERIT suggestions.
 - **`SupportFormUpload` / `AIExtractedEntry`** — the whole-document upload pipeline: a scanned support form is uploaded, vision-extracted, and parsed into typed entries mapped to the six dimensions. The active upload run generates at most one candidate per extracted fact, preserves the exact source snapshot, and may be reprocessed without deleting prior runs.
 - **`AuditLog`** — general tamper-evident action log (signatures, submissions, entry confirmations, suggestion review actions, evaluation-status transitions, and more).
 - **`EvalMilestone`** — generated AR 623-3 suspense dates.
@@ -179,7 +179,7 @@ All routes are mounted under `/api`. Every route except `/api/health` requires a
 
 ---
 
-## 6. The AI pipelines
+## 6. MERIT assistance pipelines
 
 There are **three** distinct drafting paths plus artifact captioning, all sharing the same review-and-provenance discipline. Every suggestion persists to `AIBulletSuggestion` and requires human accept/edit/reject before it can reach the form.
 
@@ -213,10 +213,10 @@ The rater can open the **Original support form** from the section builder throug
 ### The guardrails (enforced in code, not just policy)
 1. **Evidence-in:** generation requires either selected logged entries or an explicit rater description.
 2. **Mandatory review:** suggestions are `PENDING_REVIEW` until a human acts; a section can't complete with pending items.
-3. **Immutable source snapshots:** each suggestion captures the exact source text at generation time, so a later edit or deletion of the underlying entry can never retroactively change what the AI was shown.
+3. **Immutable source snapshots:** each suggestion captures the exact source text at generation time, so later source edits cannot change what MERIT used.
 4. **Unsupported-fact detection:** a deterministic checker flags specific claims — numbers, percentages, dates, named schools, awards/rankings — that don't appear anywhere in the source snapshot. Advisory, never blocking; re-checked again at pre-submission validation in case a later manual edit introduces an unsupported claim.
 5. **Transactional, idempotent acceptance:** accepting or editing a suggestion is one atomic transaction that flips its review status and appends the final bullet (with its full provenance chain) to the section in a single step — a duplicate or double-click request is rejected cleanly rather than creating a duplicate bullet.
-6. **Reviewable provenance:** any AI-touched final bullet exposes a "view source" trail back to its originating suggestion, source entries, and evidence snapshot.
+6. **Reviewable provenance:** any MERIT-touched final bullet exposes a "view source" trail back to its originating suggestion, source entries, and evidence snapshot.
 
 ---
 
@@ -266,7 +266,7 @@ See [05 — Security & Compliance](./05-security-and-compliance.md) for the full
 | Versioned assignment plus immutable evaluation snapshot | Assignment changes apply prospectively; existing evaluation authority cannot drift after creation |
 | Two-tier completeness (hard gate / soft indicator) | Unlock the evaluation without letting one slow dimension block a career |
 | One wizard/template, branch on `evalCategory` | The six dimensions are identical NCO vs officer; avoids duplicate UIs |
-| AI provenance stored permanently | Trust, defensibility, and the anti-autopilot guarantee |
+| MERIT provenance stored permanently | Trust, defensibility, and the anti-autopilot guarantee |
 | RAG over AR 623-3 / DA PAM 623-3 | Bullets are doctrinally grounded, not generic |
 | Rater observations kept separate from soldier entries | Preserves who-said-what: a soldier's own claim and a rater's independent factual note are never merged into one record |
 
@@ -293,4 +293,4 @@ See [16 - PM Demo Route](./16-pm-demo-route.md) §1.1 for the exact stub labels 
 
 ---
 
-**Next:** [04 — Business Case](./04-business-case.md) — the value, market, and risk view.
+**Related:** [01 - Product Overview](./01-product-overview.md), [05 - Security and Compliance](./05-security-and-compliance.md), and [08 - Data Flow and API Contract](./08-data-flow-and-api-contract.md).

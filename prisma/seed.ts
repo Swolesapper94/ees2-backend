@@ -151,6 +151,23 @@ async function main() {
   });
 
   // ── Dev Users (matched to auth.ts DEV_USERS) ────────────────────
+  await prisma.user.upsert({
+    where: { email: "morgan.reed@army.mil" },
+    update: { unitId: unit.id, category: "OFFICER", roles: ["SOLDIER", "REVIEWER", "COMMANDER"] },
+    create: {
+      id: "dev-reviewer-reed",
+      supabaseId: "dev-reviewer-reed",
+      email: "morgan.reed@army.mil",
+      firstName: "Morgan",
+      lastName: "Reed",
+      rank: "LTC",
+      mos: "11A",
+      roles: ["SOLDIER", "REVIEWER", "COMMANDER"],
+      unitId: unit.id,
+      category: "OFFICER",
+    },
+  });
+
   const cpSsmith = await prisma.user.upsert({
     where: { email: "peter.smith@army.mil" },
     update: { unitId: unit.id, category: "OFFICER", profilePictureUrl: "/demo-avatars/peter-smith.webp" },
@@ -570,7 +587,7 @@ async function main() {
   // ── TEST NCOER — SGT Davis (DRAFT) ────────────────────────────
   const davisEval = await prisma.evaluation.upsert({
     where: { id: "dev-eval-davis" },
-    update: {},
+    update: { status: "RATER_IN_PROGRESS" },
     create: {
       id: "dev-eval-davis",
       ratingChainId: davisChain.id,
@@ -603,6 +620,48 @@ async function main() {
       withinWeightStandard: true,
     },
   });
+
+  // The default PM-demo evaluation must contain the six Part IV records the
+  // evaluation workspace expects. Seed three completed sections to make the
+  // progress visualization meaningful, while leaving Leads/Develops/Achieves
+  // open for the live evidence-to-bullet portion of the demo. Empty updates
+  // preserve any edits a tester has already made on a later seed run.
+  const davisPartIvSections = [
+    {
+      section: "CHARACTER" as const,
+      ratingBinary: "MET_STANDARD" as const,
+      ratingFourLevel: null,
+      finalBullets: ["upheld Army Values while leading a four-Soldier team through eight field training days with zero accountability failures"],
+      isComplete: true,
+    },
+    {
+      section: "PRESENCE" as const,
+      ratingBinary: null,
+      ratingFourLevel: "EXCEEDED_STANDARD" as const,
+      finalBullets: ["scored 540 on the ACFT and completed Air Assault School as honor graduate; set the physical-readiness example for the team"],
+      isComplete: true,
+    },
+    {
+      section: "INTELLECT" as const,
+      ratingBinary: null,
+      ratingFourLevel: "EXCEEDED_STANDARD" as const,
+      finalBullets: ["built a PCC/PCI checklist that eliminated missed pre-combat checks across four consecutive live-fire rehearsals"],
+      isComplete: true,
+    },
+    { section: "LEADS" as const, ratingBinary: null, ratingFourLevel: null, finalBullets: [] as string[], isComplete: false },
+    { section: "DEVELOPS" as const, ratingBinary: null, ratingFourLevel: null, finalBullets: [] as string[], isComplete: false },
+    { section: "ACHIEVES" as const, ratingBinary: null, ratingFourLevel: null, finalBullets: [] as string[], isComplete: false },
+  ];
+  await Promise.all(davisPartIvSections.map((section) => prisma.evalSection.upsert({
+    where: { evaluationId_section: { evaluationId: davisEval.id, section: section.section } },
+    update: {},
+    create: {
+      evaluationId: davisEval.id,
+      ...section,
+      completedAt: section.isComplete ? new Date("2025-05-15") : null,
+      completedById: section.isComplete ? ssgJohnson.id : null,
+    },
+  })));
 
   const returnedJohnsonNcoer = await prisma.evaluation.upsert({
     where: { id: "dev-eval-johnson-returned" },

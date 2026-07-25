@@ -10,7 +10,7 @@
 
 **AER (Academic Evaluation Report)** — A report documenting performance in a course/school; a common certificate-type artifact.
 
-**AR 623-3** — The Army Regulation governing the Evaluation Reporting System: who is evaluated, when, and how. EES 2.0 encodes its rules (timelines, counseling, signatures) as software guardrails.
+**AR 623-3** — The Army Regulation governing the Evaluation Reporting System. MERIT encodes relevant timelines, counseling, assignment, and signature rules as software guardrails.
 
 **Bullet** — A single achievement statement on the evaluation, written in the Army's action-impact format (strong verb + what was done + measurable result), no personal pronouns, ≤ ~200 characters.
 
@@ -24,23 +24,23 @@
 
 **Evaluation (NCOER / OER)** — The official periodic performance report. **NCOER** = Noncommissioned Officer Evaluation Report (enlisted leaders, E5+). **OER** = Officer Evaluation Report.
 
-**HRC (Human Resources Command)** — The Army command that processes evaluations. A report that violates rules is "returned" by HRC for correction — costly rework EES 2.0 aims to reduce.
+**HRC (Human Resources Command)** — The Army command that processes evaluations. A returned report requires correction and rework that MERIT aims to reduce.
 
-**iPERMS (Interactive Personnel Electronic Records Management System)** — The Army's official system of record for personnel documents. It has no public API, so EES 2.0 uses a soldier self-attestation flag to surface possible discrepancies transparently rather than faking automated verification.
+**iPERMS (Interactive Personnel Electronic Records Management System)** — The Army's official personnel-document system. Because no public API is available, MERIT uses Soldier self-attestation to surface possible discrepancies rather than implying automated verification.
 
 **IPPS-A (Integrated Personnel and Pay System–Army)** — The Army's integrated HR/pay system; a candidate for future authorized integration.
 
 **MOS (Military Occupational Specialty)** — A soldier's job code (e.g., 11B, infantry). Used as context for doctrinally-appropriate bullets.
 
-**"Most Qualified" profile / cap** — A constraint on senior raters: only a limited percentage of the soldiers they rate at a grade may receive the top "most qualified" box. EES 2.0 tracks and visualizes this cap so it isn't accidentally exceeded.
+**"Most Qualified" profile / cap** — A constraint on senior raters. MERIT tracks and visualizes the applicable limit as decision support.
 
-**PCS (Permanent Change of Station)** — A soldier's move to a new assignment. Historically, documented performance is lost across a PCS; EES 2.0 preserves it. A PCS naturally starts a fresh rating chain.
+**PCS (Permanent Change of Station)** — A Soldier's move to a new assignment. MERIT preserves prior-period evidence and starts future work from a new rating relationship.
 
 **Rated soldier** — The person being evaluated (can be an NCO or an officer).
 
 **Rater** — The rated soldier's direct supervisor, who writes the performance (Part IV) assessment.
 
-**Rating chain** — The ordered supervisory relationship (rated soldier → rater → senior rater → optional reviewer) that determines who has authority over which evaluation. The backbone of authorization in EES 2.0.
+**Rating chain** — The ordered relationship (rated Soldier → rater → senior rater → optional reviewer) that determines evaluation authority in MERIT.
 
 **Reason code / reason for submission** — Why an evaluation is being written (Annual, Change of Rater, Complete the Record, Relief for Cause, etc.). Administrative/relief reasons are rater-controlled, not soldier-selectable.
 
@@ -54,23 +54,23 @@
 
 **Succession planning** — Senior-rater guidance on the soldier's next assignments (two successive + one broadening, per AR 623-3).
 
-**Support form** — The year-long performance record (`DA 2166-9-1A` / `67-10-1A`) that is *supposed* to feed the evaluation. EES 2.0's core insight is to make this a continuous, proof-backed log instead of a deadline-night reconstruction.
+**Support form** — The rating-period performance record that MERIT treats as a continuous, proof-backed log rather than a deadline reconstruction.
 
 **UIC (Unit Identification Code)** — The unique code identifying a unit.
 
 ---
 
-## EES 2.0 / product terms
+## MERIT product terms
 
-**Anti-autopilot** — The governing design principle: AI assists and suggests, but the human rater reviews, edits, and owns every bullet. Enforced by three guardrails — evidence-in, mandatory review, permanent provenance.
+**Anti-autopilot** — MERIT assists and suggests; the human rater reviews, edits, and owns every final bullet. Enforced through evidence-in, mandatory review, and permanent provenance.
 
 **Artifact** — A piece of proof a soldier attaches to a support-form entry: Certificate/Award, Score Sheet, Photo, Document, or Other.
 
-**Artifact caption** — A short, factual AI-generated description of what an artifact shows, produced once at upload and reused as context for bullet generation (so images aren't re-processed every time).
+**Artifact caption** — A short factual MERIT-generated description produced once at upload and reused as generation context.
 
 **Bullet source / provenance** — The label every final bullet carries: `HUMAN`, `AI_MODIFIED`, or `AI_UNMODIFIED`. Recorded permanently for auditability.
 
-**Bullet provenance chain** — The full, permanent link from a final AI-touched bullet back to the AI suggestion it came from, the source support-form entries selected for it, and the evidence snapshot used to generate it. Reviewable via a "view source" affordance so nothing is a black box after acceptance.
+**Bullet provenance chain** — The permanent link from MERIT-touched final content to its suggestion, source references, and generation-time evidence snapshot.
 
 **Completeness gate (two-tier)** — **Hard gate** = Part I–III admin + at least one goal in any dimension (unlocks evaluation initiation). **Soft indicator** = all six dimensions have a goal (progress display only; never blocks).
 
@@ -78,7 +78,7 @@
 
 **Counseling preparation (workspace)** — The in-app workspace a rater uses to prepare for and reconcile a required official counseling session (DA Form 4856). It composes goals, evidence, and rater observations since the last session and records a short outcome summary plus an optional reference/link to the completed official record. It is not a second official counseling process.
 
-**Evidence-driven evaluation** — The paradigm shift EES 2.0 represents: the evaluation is a byproduct of a documented year of performance, versus **event-driven** (deadline-scramble) evaluation.
+**Evidence-driven evaluation** — MERIT's operating model: the evaluation is a byproduct of a documented rating period rather than a deadline scramble.
 
 **Goal** — A Soldier-authored statement of intent for one leadership dimension, submitted to the assigned rater for approval or revision. Approved goals give a 3-5-per-dimension focus advisory (never blocking) and can be carried forward, unedited, into a successor support form via an explicit link. A goal is context for evidence, not evidence itself — distinct from an **accomplishment**, which documents something already done.
 
@@ -94,11 +94,11 @@
 
 **Soldier Accomplishments widget** — The rater-facing panel in the section builder that lists the soldier's logged accomplishments (with proof and the rater's confirmation status) for a dimension and turns the selected ones into draft bullets.
 
-**Source snapshot** — An immutable copy of the exact entry text and artifact captions an AI suggestion was generated from, captured at generation time and stored permanently on the suggestion. Guarantees that a later edit or deletion of the underlying entry can never rewrite what the record shows the AI was actually given.
+**Source snapshot** — An immutable copy of the exact evidence MERIT used at generation time; later source edits cannot rewrite that record.
 
 **Stale signature** — A signature invalidated because the content it signed was later edited, detected automatically via content hashing.
 
-**Unsupported-fact warning** — An advisory flag raised when a bullet contains a specific, checkable claim (a number, percentage, date, school name, or award/ranking) that doesn't appear anywhere in the evidence it was generated from. Deterministic (no AI judgment call), never blocking on its own — the rater decides how to resolve it.
+**Unsupported-fact warning** — An advisory raised when a specific checkable claim does not appear in generation evidence. The deterministic check does not make the rating decision.
 
 ---
 
@@ -124,7 +124,7 @@
 
 **PostgreSQL** — The relational database (hosted via Supabase) that stores all EES data.
 
-**RAG (Retrieval-Augmented Generation)** — Feeding relevant regulation text (`RegulationChunk`) into the AI prompt so generated bullets are doctrinally grounded rather than generic.
+**RAG (Retrieval-Augmented Generation)** — Feeding relevant regulation text (`RegulationChunk`) into MERIT generation so candidates are doctrinally grounded.
 
 **RLS (Row-Level Security)** — PostgreSQL policies that restrict row access at the database layer — the deepest of the three authorization layers.
 

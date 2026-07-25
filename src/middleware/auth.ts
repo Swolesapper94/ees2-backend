@@ -112,7 +112,7 @@ const DEV_USERS: Record<string, User> = {
     rank: "LTC",
     mos: "11A",
     roles: ["SOLDIER", "REVIEWER", "COMMANDER"],
-    unitId: "dev-unit-505",
+    unitId: "dev-unit-721st-engineer",
     createdAt: new Date("2024-01-01"),
     updatedAt: new Date("2024-01-01"),
   } as unknown as User,

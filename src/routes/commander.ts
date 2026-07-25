@@ -15,15 +15,16 @@ commanderRouter.get(
       throw new HttpError(403, "Commander role required");
     }
 
-    const commander = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      include: { unit: { include: { children: true } } },
+    if (!req.user.unitId) throw new HttpError(404, "Commander's unit not found");
+    const commandUnit = await prisma.unit.findUnique({
+      where: { id: req.user.unitId },
+      include: { children: true },
     });
-    if (!commander?.unit) throw new HttpError(404, "Commander's unit not found");
+    if (!commandUnit) throw new HttpError(404, "Commander's unit not found");
 
     const unitIds = [
-      commander.unitId,
-      ...(commander.unit.children?.map((u: { id: string }) => u.id) ?? []),
+      commandUnit.id,
+      ...(commandUnit.children?.map((u: { id: string }) => u.id) ?? []),
     ].filter(Boolean) as string[];
 
     const soldiers = await prisma.user.findMany({

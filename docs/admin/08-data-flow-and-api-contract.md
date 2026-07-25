@@ -1,4 +1,4 @@
-# EES 2.0 Data Flow and API Contract
+# MERIT Data Flow and API Contract
 
 ## Purpose
 
@@ -6,7 +6,7 @@ This document identifies what the database stores, which backend routes read or 
 
 ### Authority boundary
 
-This is the **current application/API contract**, not a field-by-field database catalog. For exact tables, columns, enum values, foreign keys, indexes, and the current migration-state caveat, use [14 - Supabase PostgreSQL Database Schema Reference](./14-database-schema-reference.md). For current remediation posture and the status of legacy/quarantined records, use [10 - Regulatory Remediation Status](./10-regulatory-remediation-status.md). The pre-remediation findings in [09 - Permission and Assignment Audit](./09-permission-and-assignment-audit.md) are historical evidence only.
+This is the **current application/API contract**, not a field-by-field database catalog. For exact tables, columns, enum values, foreign keys, indexes, and migration caveats, use [14 - Database Schema Reference](./14-database-schema-reference.md). For remediation posture and preserved historical findings, use [10 - Regulatory Remediation Status](./10-regulatory-remediation-status.md).
 
 ## Identity and Session Flow
 
@@ -33,7 +33,7 @@ The dashboard endpoint updates `User.lastLoginAt` after it returns its response.
 | `RatingSchemeAssignment` | officials, form category, effective dates, status, review requirement | The compliance-authoritative relationship for new records. It is validated, approved, published, and replaced prospectively. |
 | `RatingChain` | `ratedSoldierId`, `raterId`, `seniorRaterId`, optional `reviewerId`, `isActive` | Legacy assignment relationship retained while older records and consumers migrate. |
 | `SupportForm` | `soldierId`, optional chain/assignment link, lifecycle status, disposition, consumption metadata | The rated soldier's evidence record for one period. New forms are assignment-backed; legacy forms remain readable only while migration completes. |
-| `SupportFormEntry` | `supportFormId`, author metadata, lock metadata, section, entry type, raw text | Soldier accomplishments/objectives used as evidence and AI context, with attributable creation and confirmation lock state. |
+| `SupportFormEntry` | `supportFormId`, author metadata, lock metadata, section, entry type, raw text | Soldier accomplishments/objectives used as evidence and MERIT context, with attributable creation and confirmation lock state. |
 | `Evaluation` | legacy chain, optional support form, status, disposition, optional snapshot | The NCOER/OER. Assignment-backed creation atomically consumes the form and creates a snapshot. |
 | `EvaluationRatingSnapshot` | evaluation, assignment, officials, ranks, categories, form category | Immutable source of authority and regulatory facts for a new evaluation. |
 | `EvalSection` | `evaluationId`, `section`, ratings, bullets | Rater/senior-rater evaluation content. |
@@ -125,6 +125,22 @@ The remaining migration work is to make all evaluation consumers use a snapshot 
 `GET /api/access-grants` derives the caller from authentication and returns either `view=helping-me` or `view=i-assist`. New grants are created through `POST /api/access-grants` as `PENDING`, must have exactly one resource scope and explicit safe capabilities, and become usable only after the named helper accepts them. The legacy `/api/delegates` routes remain during compatibility migration but are not the new authorization source.
 
 Delegated authorization is a secondary path after direct relationship access. A grant must be active, accepted, within its effective window, scoped to the exact resource, match the subject, and contain the requested capability. No capability exists for signing, acknowledgment, ratings, rater/senior-rater narrative editing, evidence confirmation, final submission, rating-chain changes, subdelegation, or impersonation.
+
+### Legacy delegate migration and deprecation
+
+The `Delegate` model and `delegates` table are retained so historical IDs, dashboard summaries, notifications, and audit events remain readable. Legacy grants are global to a principal/delegate pair and expose only `VIEW_ONLY` or `PUSH_ALONG`; they are not valid authorization sources for the scoped assistance path.
+
+New writes use `/api/access-grants` and add grantor, helper, subject, resource scope, lifecycle status, acceptance/revocation metadata, review state, and explicit capability rows. The same people may hold multiple independently scoped grants. No global `DELEGATE` role exists.
+
+Migration treatment is additive:
+
+- Clearly safe legacy records retain their IDs and are mapped to explicit scope/capabilities.
+- Ambiguous, expired, invalid, or unscopeable records become `SUSPENDED`, require review, and receive no capabilities.
+- Legacy mutation routes reject changes to migrated scoped grants; capability reduction and revocation use the audited grant lifecycle API.
+- The old `/delegates` frontend route redirects to `/access-assistance`.
+- Invitation, acceptance, decline, revocation, capability reduction, expiry, and delegated resource actions remain attributable to the helper's own identity.
+
+An hourly lifecycle sweep expires grants after their effective window and sends a one-time expiring-soon notice within seven days.
 
 ## Identity and Access Contract
 

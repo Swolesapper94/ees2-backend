@@ -6,7 +6,7 @@
 
 ## 1. Purpose
 
-EES 2.0 currently models the `SeniorRaterProfile` comparative axis. AR 623-3 section 3-11 names three rating-history instruments, leaving two rater-side instruments unmodeled today:
+MERIT currently models the `SeniorRaterProfile` comparative axis. AR 623-3 section 3-11 names three rating-history instruments, leaving two rater-side instruments unmodeled today:
 
 | Instrument | AR 623-3 source | Applies to | Capped? | Modeled today |
 | --- | --- | --- | --- | --- |
@@ -96,7 +96,7 @@ CAC binding is out of scope pending accreditation. If LOCK is built for the demo
 
 ## 3. Authority Boundary
 
-EES 2.0 is not HQDA. The authoritative profile and tendency are computed at HRC from processed reports, in order of receipt, and are retrievable by the rater at `evaluations.hrc.army.mil` with a CAC. EES 2.0 has no authoritative feed and must never imply otherwise.
+MERIT is not HQDA. The authoritative profile and tendency are computed at HRC from processed reports. MERIT has no authoritative feed and must never imply otherwise.
 
 Implementation consequences:
 
@@ -466,7 +466,7 @@ Prohibited without exception:
 - No CSV, PDF, API, or third-party export of a distribution.
 - No cross-rater comparison surface.
 
-Rationale: if a rater's distribution leaves the rater's own visibility boundary, EES 2.0 has invented rater-profile policy HQDA did not write.
+Rationale: if a rater's distribution leaves the rater's own visibility boundary, MERIT has invented policy HQDA did not write.
 
 ---
 

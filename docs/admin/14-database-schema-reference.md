@@ -1,6 +1,6 @@
 # 14 - Supabase PostgreSQL Database Schema Reference
 
-> **Purpose:** A complete engineering and administration reference for the EES 2.0 PostgreSQL schema hosted by Supabase. It describes the intended application schema declared in `prisma/schema.prisma`, including tables, columns, enums, relationships, indexes, constraints, and database-adjacent Supabase services.
+> **Purpose:** Engineering and administration reference for the MERIT PostgreSQL schema hosted by Supabase.
 
 ## Important deployment status
 
@@ -521,7 +521,7 @@ Unique constraint: `(goalId, counselingSessionId)`.
 | `submittedAt`, `acceptedAt` | `DateTime?` | HRC lifecycle timestamps. |
 | `createdAt`, `updatedAt` | `DateTime` | Timestamps. |
 
-Relationships: evaluation sections, signatures, returns, milestones, comments, notifications, audit rows, uploads, AI suggestions, final-form reviews, access grants, and an optional immutable rating snapshot.
+Relationships: evaluation sections, signatures, returns, milestones, comments, notifications, audit rows, uploads, MERIT suggestions, final-form reviews, access grants, and an optional immutable rating snapshot.
 
 #### `eval_sections` (`EvalSection`)
 
@@ -692,7 +692,7 @@ Index: `(principalId, delegateUserId)`. Capability rows are stored in `delegatio
 
 Unique constraint: `(delegationGrantId, capability)`.
 
-### AI, document ingestion, and regulation knowledge
+### MERIT assistance, document ingestion, and regulation knowledge
 
 #### `regulation_chunks` (`RegulationChunk`)
 
@@ -740,7 +740,7 @@ Relations: one upload yields `ai_extracted_entries` and can produce `ai_bullet_s
 | `evaluationId` | `String` FK -> `evaluations.id` | Required target evaluation. |
 | `uploadId` | `String?` FK -> `support_form_uploads.id` | Present for whole-document upload path. |
 | `sectionKey` | `SectionKey` | Required target form section. |
-| `text` | `String` | Required AI candidate. |
+| `text` | `String` | Required MERIT candidate. |
 | `confidence` | `AIBulletConfidence` | Default `MEDIUM`. |
 | `rank` | `Int` | Candidate rank, `1` is best. |
 | `status` | `AIBulletStatus` | Default `PENDING_REVIEW`. |
@@ -752,12 +752,12 @@ Relations: one upload yields `ai_extracted_entries` and can produce `ai_bullet_s
 | `unsupportedClaims` | `Json?` | Deterministic unsupported-fact findings. |
 | `createdAt`, `updatedAt` | `DateTime` | Timestamps. |
 
-`sourceSnapshot` is deliberately denormalized historical evidence. It may contain Soldier accomplishments, rater observations, reviewed upload facts, artifact captions, goal context, observation author/timestamps, and counseling release state. It must not be rebuilt from current source rows, because later source edits/deletions must not alter the factual record of what the AI received at generation time.
+`sourceSnapshot` is deliberately denormalized historical evidence. It may contain Soldier accomplishments, rater observations, reviewed upload facts, artifact captions, goal context, observation author/timestamps, and counseling release state. It must not be rebuilt from current rows because later source edits must not alter what MERIT used at generation time.
 
 ## Important database rules and boundaries
 
 1. **Application authorization is not entirely expressed as foreign keys.** The API applies rating-chain and assignment-snapshot authorization. A valid FK alone does not grant a user access to an evaluation.
-2. **Lifecycle transitions are application rules.** Examples include recomputing `Evaluation.status`, blocking section completion while AI suggestions are pending, and consuming a support form when an evaluation is created.
+2. **Lifecycle transitions are application rules.** Examples include recomputing `Evaluation.status`, blocking completion while MERIT suggestions are pending, and consuming a support form when an evaluation is created.
 3. **`Json` fields are contracts.** `notificationPreferences`, `sourcePayload`, `sourceSnapshot`, `unsupportedClaims`, `bulletSources`, `bulletProvenance`, `profileData`, and audit `metadata` should be changed only with versioned application handling.
 4. **Supabase Storage is separate.** Deleting a database row does not automatically delete a referenced object unless the route explicitly deletes it from Storage.
 5. **Raw identifiers are not always foreign keys.** Some administrative/attribution fields are intentionally stored as scalar IDs for migration compatibility or future integration. The table dictionary calls out fields that are not modelled as Prisma relationships.
@@ -769,7 +769,7 @@ Relations: one upload yields `ai_extracted_entries` and can produce `ai_bullet_s
 - [03 - Technical Architecture](./03-technical-architecture.md) for the application architecture and main data-flow narrative.
 - [05 - Security and Compliance](./05-security-and-compliance.md) for authorization, RLS, audit, and compliance controls.
 - [08 - Data Flow and API Contract](./08-data-flow-and-api-contract.md) for endpoint/lifecycle contract detail.
-- [09 - Permission and Assignment Audit](./09-permission-and-assignment-audit.md) for legacy-data remediation and demo-data readiness.
+- [10 - Regulatory Remediation Status](./10-regulatory-remediation-status.md) for current remediation posture and preserved historical audit evidence.
 
 ---
 

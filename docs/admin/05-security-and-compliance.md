@@ -1,6 +1,6 @@
 # 05 — Security & Compliance
 
-> How EES 2.0 protects data, enforces authorization, preserves integrity, and aligns with Army evaluation regulation. Written for security reviewers, compliance officers, and technical leadership.
+> How MERIT protects data, enforces authorization, preserves integrity, and aligns with Army evaluation regulation.
 
 ---
 
@@ -13,9 +13,9 @@
 | **Transport** | HTTPS; bearer-token auth on every non-health endpoint |
 | **Input validation** | Zod schema validation on every request body at the API boundary |
 | **HTTP hardening** | `helmet` security headers, configured `cors` allow-list, `morgan` request logging |
-| **Data integrity** | Signature content-hashing (stale-signature detection); permanent audit and AI-generation logs |
+| **Data integrity** | Signature content hashing; permanent audit and MERIT-generation logs |
 | **Secrets** | Environment variables; service-role keys are backend-only and never exposed to the client |
-| **AI safety** | Anti-autopilot design: evidence-in, mandatory human review, permanent provenance |
+| **MERIT assistance safety** | Evidence-in, mandatory human review, permanent provenance |
 
 ---
 
@@ -50,8 +50,8 @@ Evaluations are legal-weight records, so the system is built to answer "who did 
 - **Signatures (`Signature`)** capture role, name confirmation, timestamp, IP address, user agent, and optional CAC/PKI fields. Each signature is bound to the content it signed via a **content hash**.
 - **Stale-signature detection:** if a signed field is later edited, `staleSigDetect` recomputes the hash, detects the mismatch, and flags the signature as stale — a silent post-signature edit is impossible to hide. `StaleReason` distinguishes a content edit from an admin correction.
 - **Audit log (`AuditLog`)** records meaningful actions — signatures, submissions, entry confirmations, suggestion review decisions, evaluation-status transitions — for a tamper-evident history.
-- **AI provenance chain (`AIBulletSuggestion` / `EvalSection.bulletProvenance`).** Every AI-drafted suggestion permanently stores an **immutable snapshot** of the exact source text and artifact captions it was generated from, captured at generation time — a later edit or deletion of the underlying entry cannot retroactively change what the record shows the AI was given. Once accepted, that link (suggestion → source entries → evidence snapshot) is carried onto the final bullet itself, so any AI-touched bullet on a signed evaluation has a permanently reviewable "where did this come from" trail.
-- **Transactional, idempotent writes.** Accepting or editing an AI suggestion is a single atomic, conditional transaction — a duplicate or double-submitted request is rejected cleanly rather than silently creating a duplicate bullet or a lost update.
+- **MERIT provenance chain (`AIBulletSuggestion` / `EvalSection.bulletProvenance`).** Every MERIT suggestion stores an immutable generation-time source snapshot. Once accepted, the final content retains the suggestion, source references, and snapshot so later source edits cannot rewrite history. `AIBulletSuggestion` remains the internal schema name.
+- **Transactional, idempotent writes.** Accepting or editing a MERIT suggestion is one atomic conditional transaction; duplicate requests cannot silently create duplicate final content.
 - **Assignment and form integrity.** Published, effective-dated rating assignments are eligibility-validated before use. Assignment-backed evaluation creation captures an immutable official snapshot and consumes its support form in one transaction; duplicate form consumption is rejected.
 - **Legacy isolation.** Historical test records that lack the required snapshot are retained with `QUARANTINED` disposition and excluded from normal active workflows rather than being deleted or silently treated as compliant.
 - **Access and Assistance.** A helper always acts under their own authenticated account through an accepted, time-limited, capability-scoped resource grant. Assistance never transfers identity, signature, acknowledgment, rating authority, evidence-confirmation authority, or rating-chain authority. Delegated writes record actor, subject, grant, capability, and action in the audit log.
@@ -59,16 +59,16 @@ Evaluations are legal-weight records, so the system is built to answer "who did 
 
 ---
 
-## 5. AI safety & integrity (the anti-autopilot guarantee)
+## 5. MERIT assistance safety and integrity
 
-The AI is deliberately constrained so it can never become an unaccountable author. This is both a product principle and a compliance control.
+MERIT assistance is deliberately constrained so it cannot become an unaccountable author. This is both a product principle and a compliance control.
 
 1. **Evidence-in, not prompt-in.** Bullets derive from the soldier's documented, proof-backed accomplishments or an explicit rater description — not from open-ended prompting.
 2. **Mandatory human review.** Every suggestion is `PENDING_REVIEW` until a human accepts, edits, or rejects it. A section cannot be completed while suggestions are unreviewed.
 3. **Permanent, linked provenance.** Each final bullet carries a `BulletSource` (`HUMAN` / `AI_MODIFIED` / `AI_UNMODIFIED`) and a full provenance chain back to its originating suggestion, source entries, and evidence snapshot.
-4. **Visibility boundary.** Rated soldiers never see AI-generated bullets — only their own submitted entries — preserving the independence of the rater's judgment.
+4. **Visibility boundary.** Rated Soldiers never see MERIT-generated candidates; they see only their own submitted records.
 5. **Doctrine grounding (RAG).** Generation is grounded in searchable AR 623-3 / DA PAM 623-3 text (`RegulationChunk`), reducing hallucination and keeping output regulation-aligned.
-6. **Unsupported-fact detection.** A deterministic, non-AI checker compares specific claims in a draft or edited bullet — numbers, percentages, dates, named schools, awards/rankings — against the evidence it was generated from, and flags anything it can't find. This is advisory (the rater decides how to resolve it), re-checked again at pre-submission validation, and never itself the sole arbiter of truth.
+6. **Unsupported-fact detection.** A deterministic checker compares specific claims in a draft or edited bullet against generation evidence. It is advisory, re-runs before submission, and never becomes the sole arbiter of truth.
 7. **Prohibited-language screening.** Content barred by DA PAM 623-3 (e.g., references to protected characteristics) is screened against.
 8. **Whole-document source isolation.** The upload pipeline generates at most one candidate per extracted source fact and produces nothing for an unsupported/empty dimension. The original document is streamed only through an authenticated evaluation relationship endpoint; browser clients never receive a local `file://` path.
 9. **Administrative boundary.** Admin navigation is hidden unless the authenticated user has application-administrator access. Identity APIs return `403` before any summary count or record is sent to an unauthorized caller; the frontend renders a dedicated access-denied experience rather than a zeroed dashboard.
@@ -77,9 +77,9 @@ The AI is deliberately constrained so it can never become an unaccountable autho
 
 ## 6. Evidence provenance & the iPERMS-discrepancy flag
 
-Because there is **no public API to verify documents against iPERMS** (a closed DoD system of record), EES 2.0 does not fake automated verification. Instead it makes evidence **transparent and reviewable**:
+Because there is **no public API to verify documents against iPERMS**, MERIT does not fake automated verification. Instead it makes evidence transparent and reviewable:
 
-- Each artifact is AI-captioned with a **factual** description (no embellishment) of what it shows.
+- Each artifact receives a factual MERIT caption (no embellishment).
 - The soldier can **self-attest a discrepancy** (`flaggedByServiceMember` + required note) — e.g., "not yet in iPERMS" or "wrong date on the certificate."
 - That flag **follows the artifact** everywhere it appears and surfaces to the rater/senior rater as a visible warning (including a `hasFlaggedArtifacts` signal when generating bullets), so a questionable claim is never laundered into a clean-looking bullet silently.
 - Separately, the **rater** can record their own review of a logged entry — confirmed, needs clarification, or not used — which is a distinct, complementary control: the soldier discloses what they know about their own evidence, and the rater independently records having reviewed it before relying on it.
@@ -92,7 +92,7 @@ This is an honesty-preserving interim control until authorized system-of-record 
 
 The system encodes regulation as software guardrails rather than relying on individual memory:
 
-| Regulatory requirement | How EES 2.0 enforces it |
+| Regulatory requirement | How MERIT enforces it |
 |------------------------|--------------------------|
 | **Counseling timeline** (initial within 30 days; quarterly) | `EvalMilestone` suspense dates auto-generated; `CounselingSession` records feed compliance analytics and Part II dates |
 | **Support-form completeness before evaluation** | Two-tier completeness gate; evaluation initiation blocked until the hard gate clears |
@@ -111,11 +111,11 @@ The system encodes regulation as software guardrails rather than relying on indi
 
 ## 8. Deployment & accreditation considerations
 
-EES 2.0 is built on a conventional, hardened, portable stack intended to be deployable into an accredited environment:
+MERIT uses a conventional, hardened, portable stack intended for deployment into an accredited environment:
 
 - **Portability:** PostgreSQL underneath Supabase means the data layer is standard and movable; the backend is a standard Node/Express service.
 - **Secrets management:** environment-based configuration with backend-only service credentials.
-- **Auditability:** comprehensive action and AI-generation logging supports accreditation and incident review.
+- **Auditability:** comprehensive action and MERIT-generation logging supports accreditation and incident review.
 - **ATO planning:** an Authority to Operate process should be scoped early for any DoD deployment; the architecture (RLS, role gating, audit, no client-side secrets) is designed to support that review. Data classification, hosting boundary, and system-of-record integration approvals are program-level decisions to be settled with the sponsoring organization.
 
 > **Note:** This document describes the system's security *design*. Formal accreditation (ATO), penetration testing, and a full DoD security control assessment are program activities to be completed with the sponsoring organization before handling live personnel data.

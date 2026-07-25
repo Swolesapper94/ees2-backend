@@ -6,13 +6,13 @@
 
 ## 1. Maturity summary
 
-EES 2.0 is a **working, integrated prototype** with the core evidence-capture → AI-assisted-drafting → compliance-gating → export loop implemented end to end. It is **not yet accredited for production use with live personnel data** — see [05 — Security & Compliance](./05-security-and-compliance.md) §8.
+MERIT is a **working, integrated prototype** with the core evidence-capture → MERIT-assisted-drafting → compliance-gating → export loop implemented end to end. It is **not yet accredited for production use with live personnel data**.
 
 | Layer | Status |
 |-------|--------|
 | Data model (37 Prisma models) | ✅ Deployed; all 14 migrations applied to Supabase as of 2026-07-17, with additive `PerformanceObservation`/counseling-reference migrations layered on afterward. See [10](./10-regulatory-remediation-status.md) for deployment caveats. |
 | Backend API (all core routers) | ✅ Implemented |
-| AI pipelines (generation + captioning) | ✅ Implemented, with immutable snapshots + unsupported-fact detection |
+| MERIT pipelines (generation + captioning) | ✅ Implemented, with immutable snapshots + unsupported-fact detection |
 | Frontend core flows | ✅ Implemented; some polish/edges pending |
 | Security design (authn/authz/audit) | ✅ Designed & implemented; formal accreditation pending |
 | Production accreditation (ATO, pen test) | ⛔ Not started (program activity) |
@@ -26,14 +26,14 @@ EES 2.0 is a **working, integrated prototype** with the core evidence-capture �
 - ✅ Accomplishment logging across the six leadership dimensions, wired end to end to the backend. Legacy `Objective` entries from before goals became a standalone model remain visible as historical evidence only; new objective-entry creation is rejected.
 - ✅ **Goals** — Soldier-authored, rater-approved/revision-requested goals per dimension, with a non-blocking 3–5-goal focus advisory, independent soldier/rater progress assessments, and explicit (non-mutating) carry-forward into a successor support form.
 - ✅ **Artifact upload** (Certificate, Score Sheet, Photo, Document, Other) with per-artifact type tagging.
-- ✅ **AI artifact captioning** — vision/PDF captioning that runs once per upload and is reused as generation context.
+- ✅ **MERIT artifact captioning** — vision/PDF captioning that runs once per upload and is reused as generation context.
 - ✅ **iPERMS-discrepancy self-attestation flag** that follows the artifact and surfaces to the rater/senior rater.
 
-### Evaluation & AI
+### Evaluation and MERIT assistance
 - ✅ Soldier-led evaluation initiation with rank-based form-type resolution and the support-form completeness gate.
 - ✅ Section builder with three drafting paths: **generate from selected logged entries**, generate from scratch, and manual entry.
 - ✅ **Soldier Accomplishments widget** — the rater-facing bridge that turns logged, proof-backed entries into draft bullets.
-- ✅ AI bullet review panel (accept / edit / reject) with mandatory-review gating and provenance tagging.
+- ✅ MERIT suggestion review panel (accept / edit / reject) with mandatory-review gating and provenance tagging.
 - ✅ Whole-document upload pipeline (vision extract → parse → one evidence-grounded candidate per extracted fact) for scanned/handwritten support forms, with authenticated original-document viewing and safe reprocessing.
 - ✅ Regulation-grounded generation (RAG over AR 623-3 / DA PAM 623-3).
 
@@ -51,7 +51,7 @@ EES 2.0 is a **working, integrated prototype** with the core evidence-capture �
 
 ### Evidence-to-bullet lifecycle (rater-facing trust & provenance)
 - ✅ **Rater confirmation** — a rater can mark a soldier-logged entry `CONFIRMED`, `NEEDS_CLARIFICATION` (with a note), or `NOT_USED`, distinct from the soldier's own artifact-level self-attestation.
-- ✅ **Immutable source snapshots** — every AI suggestion permanently captures the exact entry text and artifact captions it was generated from, so later edits/deletes of the source can't rewrite history.
+- ✅ **Immutable source snapshots** — every MERIT suggestion captures the exact generation-time evidence so later source edits cannot rewrite history.
 - ✅ **Full bullet provenance chain** — an accepted bullet keeps a permanent, reviewable link back to its originating suggestion, source entries, and evidence snapshot (a "view source" affordance in the section builder).
 - ✅ **Transactional, idempotent suggestion acceptance** — accept/edit is one atomic operation; duplicate or double-submitted requests are rejected cleanly instead of creating duplicate bullets.
 - ✅ **Performance timeline** — a chronological, filterable composition of logged entries, counseling sessions, and milestones, giving full rating-period context before drafting or finalizing bullets.
@@ -60,7 +60,7 @@ EES 2.0 is a **working, integrated prototype** with the core evidence-capture �
 - ✅ **Rater-owned performance observations** (`PerformanceObservation`) — a factual, dimension-tagged note authored only by the assigned rater, private until released; a soldier, senior rater, or unrelated rater cannot author, edit, or release one (server-enforced, not just UI-hidden — validated with a live authorization smoke test).
 - ✅ **Counseling preparation workspace** — composes goals, evidence, and observations since the last session with a 3–5-goal-per-dimension focus advisory (never blocking); explicitly framed as reconciliation for the required official DA Form 4856 counseling, with an `officialRecordReference` / `officialRecordUrl` field rather than a second official counseling record.
 - ✅ **Goal-evidence traceability** — Soldier-authored, rater-approved goals (`Goal`, `GoalEntryLink`) with independent soldier/rater progress assessments and explicit (non-mutating) carry-forward into a successor support form.
-- ✅ **Typed AI evidence references** — `AIBulletSuggestion.evidenceReferences` distinguishes `SUPPORT_FORM_ENTRY` from `PERFORMANCE_OBSERVATION` sources instead of overloading `sourceEntryIds`; the rater-facing prompt explicitly instructs the model that a linked goal is context, never proof.
+- ✅ **Typed MERIT evidence references** — internal `AIBulletSuggestion.evidenceReferences` distinguishes `SUPPORT_FORM_ENTRY` from `PERFORMANCE_OBSERVATION`; linked goals remain context, never proof.
 - ✅ **Rating-scheme visual relationship map** — an org-chart-style default view (with a sortable table as the alternate view) showing senior rater → rater → rated soldier groupings, intermediate/supplementary reviewers, and assignment exceptions.
 - ✅ **Returned-evaluation reason display** — the specific HRC/chain return reason is shown to the soldier and rater instead of a generic rejected status.
 
@@ -91,7 +91,7 @@ An internal audit traced every capability against its actual implementation (not
 - **Authorization coverage.** Several routes previously checked only "is this a logged-in user" rather than "is this user actually authorized for this specific evaluation." A shared rating-chain-authorization helper now covers bullet generation, suggestion review, signing, PDF export, milestone actions, and artifact ownership consistently.
 - **Evaluation status.** Status is now computed from real section-completion and signature state rather than a field that could silently drift from reality.
 - **Duplicate-generation cleanup.** An early, superseded bullet-generation code path (pre-dating the current regulation-grounded pipeline) was retired in favor of the single, actively used pipeline — removing a source of confusion about which system was authoritative.
-- **Data-integrity hardening.** Suggestion acceptance is now transactional and idempotent (safe against double-submission), and every AI suggestion carries an immutable snapshot of its source evidence plus a full provenance chain once accepted.
+- **Data-integrity hardening.** MERIT suggestion acceptance is transactional and idempotent, with immutable source snapshots and final-content provenance.
 
 This pass did not change the overall production-readiness posture (see §8 of [05 — Security & Compliance](./05-security-and-compliance.md)) but meaningfully strengthens the authorization and integrity foundation the accreditation process will review.
 
@@ -101,7 +101,7 @@ The compliance foundation is implemented additively. Legacy `RatingChain` relati
 
 ### 2c. PM-facing fresh-start demo route
 
-The ideal program-manager demo should not rely on already-polished seeded bullets. Use [16 - PM Demo Route: Fresh Evidence to AI Bullets](./16-pm-demo-route.md) to rehearse a fresh route where a Soldier adds or uploads new support-form evidence, the rater generates AI suggestions from that evidence, and the demo proves human review, source provenance, unsupported-fact checks, workflow sequencing, and final-form controls.
+The program-manager demo should not rely on already-polished seeded bullets. Use [16 - PM Demo Route](./16-pm-demo-route.md) to show fresh evidence, MERIT suggestions, human review, provenance, unsupported-fact checks, and workflow controls.
 
 The recommended live path is the Davis NCOER workflow because it exercises the complete authoring and review chain. The Torres OER path remains valuable for showing officer form selection and the MAJ senior-rater topology, but should be treated as a boundary demo until OER authoring reaches NCOER parity.
 
@@ -141,7 +141,7 @@ Roughly in priority order:
 
 ## 5. Longer-horizon opportunities
 
-- **Multi-service generalization** — the core engine (evidence capture → constrained AI drafting → compliance gating → audited export) applies to other services' evaluation systems and to federal civilian appraisals.
+- **Multi-service generalization** — the core engine (evidence capture → constrained MERIT drafting → compliance gating → audited export) applies to other evaluation systems.
 - **Talent-management analytics** — longitudinal, structured, proof-backed performance data enables fairness auditing and force-level insight that doesn't exist today.
 - **Board-support tooling** — consistent, verifiable records open the door to better-informed promotion and selection boards.
 
@@ -149,7 +149,7 @@ Roughly in priority order:
 
 ## 6. Known constraints & dependencies
 
-- **`OPENAI_API_KEY` required** — AI features fail closed without it; it must be present in the backend environment.
+- **`OPENAI_API_KEY` required** — MERIT generation features fail closed without the configured provider key; manual entry remains available.
 - **iPERMS/IPPS-A** integration depends on authorized access to closed DoD systems; until then, the self-attestation flag is the honest interim control.
 - **Accreditation gates production** — live personnel data requires completion of the security/accreditation activities in [05](./05-security-and-compliance.md) §8.
 

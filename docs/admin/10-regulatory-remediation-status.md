@@ -1,6 +1,6 @@
 # 10 - Regulatory Remediation Status
 
-> **Purpose:** The current, concise status record for the regulatory assignment, support-form, evaluation, and access-control remediation work. Use this document for current-state decisions. Use [09 - Permission and Assignment Audit](./09-permission-and-assignment-audit.md) only as preserved pre-remediation evidence.
+> **Purpose:** The current status record for regulatory assignment, support-form, evaluation, and access-control remediation. The historical audit summary is preserved in this document so current and prior-state evidence cannot be confused.
 
 ## Deployment Status (as of 2026-07-17 14:00 UTC)
 
@@ -62,7 +62,43 @@ Use these sources in this order when preparing a demo, test plan, security revie
 1. **Current implementation and database contract:** [14 - Database Schema Reference](./14-database-schema-reference.md), `prisma/schema.prisma`, and current backend route/policy code.
 2. **Current API and workflow rules:** [08 - Data Flow and API Contract](./08-data-flow-and-api-contract.md) and [FLOWS - Workflow Test Runbook](./FLOWS.md).
 3. **Product delivery status and known work:** [06 - Roadmap and Status](./06-roadmap-and-status.md).
-4. **Historical evidence only:** [09 - Permission and Assignment Audit](./09-permission-and-assignment-audit.md).
+4. **Historical evidence:** the appendix below preserves the pre-remediation findings and fixture counts.
+
+## Historical audit appendix (pre-remediation)
+
+The July 2026 audit found that the development database had drifted from the intended five-persona seed topology:
+
+- A historical Torres chain incorrectly named SSG Johnson as the rater even though the checked-in seed named CPT Smith.
+- Eleven active support forms existed across three chains; several represented repeated test cycles rather than valid current-period records.
+- Ten draft evaluations included incompatible form types and duplicate support-form consumption.
+- `dev-sf-davis` had been linked to more than one draft evaluation.
+- Support-form read/write routes were insufficiently scoped by relationship.
+- Dashboard due-window empty text implied missing Soldiers when records were merely outside the 30/60/90-day window.
+- Formation analytics lacked completed/submitted/accepted history, so several panels correctly returned empty datasets.
+
+The observed pre-remediation inventory was:
+
+| Record type | Count |
+| --- | ---: |
+| Users | 5 |
+| Active rating chains | 3 |
+| Active support forms | 11 |
+| Support-form entries | 77 |
+| Draft evaluations | 10 |
+| Evaluation milestones | 24 |
+| Notifications | 28 |
+
+The remediation retained these records for audit/debugging, marked incompatible records `QUARANTINED`, and excluded them from normal active workflows. The audit is not the current permission contract; current authority is defined by [08 - Data Flow and API Contract](./08-data-flow-and-api-contract.md) and the route/policy code.
+
+### Intended demo topology preserved from the audit
+
+| Rated Soldier | Rater | Senior Rater | Form family |
+| --- | --- | --- | --- |
+| SGT James Davis | SSG Marcus Johnson | SFC Robert Williams | NCOER 9-1 |
+| SSG Marcus Johnson | CPT Peter Smith | SFC Robert Williams | NCOER 9-2 |
+| 1LT Maria Torres | CPT Peter Smith | MAJ Jordan Lee | OER |
+
+Rank or global role alone never grants authority. Access assistants remain outside every rating-official column.
 
 ## Deployment requirement
 
@@ -84,6 +120,5 @@ npx prisma migrate status
 ## Related documents
 
 - [08 - Data Flow and API Contract](./08-data-flow-and-api-contract.md)
-- [09 - Permission and Assignment Audit](./09-permission-and-assignment-audit.md)
-- [13 - Access and Assistance Implementation Note](./13-access-and-assistance-implementation-note.md)
+- [08 - Data Flow and API Contract](./08-data-flow-and-api-contract.md)
 - [14 - Supabase PostgreSQL Database Schema Reference](./14-database-schema-reference.md)

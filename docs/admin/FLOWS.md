@@ -1,10 +1,10 @@
-# EES 2.0 Workflow Test Runbook
+# MERIT Test and Acceptance Runbook
 
 ## Purpose
 
 This is the authoritative manual test guide for the regulated evaluation workflow. It reflects the implementation including versioned assignments, immutable evaluation snapshots, standalone support-form goals, ordered signatures, supplementary review, and final-form confirmation before submission.
 
-For a customer-facing, checkbox-driven walkthrough and results template, use [12 - Customer Manual Acceptance Test Plan](./12-customer-manual-acceptance-test-plan.md).
+This document is both the detailed workflow runbook and the customer acceptance checklist. Execute the procedural steps below, then record results in the acceptance section at the end.
 
 Use the Davis NCOER path for the complete four-person workflow. Use the Torres OER path to verify officer assignment, form selection, and the MAJ senior-rater path. The OER builder is not yet at feature parity with the NCOER builder.
 
@@ -141,8 +141,8 @@ To test this negative case, create a separate published test assignment with no 
 1. Sign in as SSG Johnson.
 2. Open the Davis evaluation from `/evaluations` or the dashboard.
 3. Complete all six Part IV sections: Character, Presence, Intellect, Leads, Develops, and Achieves.
-4. For each section, either enter compliant final bullets manually or use the AI evidence-to-bullet panel when the AI environment is configured.
-5. For a whole-document upload, open **Original support form** from the AI workspace to compare the document with suggestions. Each suggestion should represent one extracted source fact; use **View source fact** only when further provenance detail is needed.
+4. For each section, enter compliant final bullets manually or use the MERIT evidence-to-bullet panel when the provider is configured.
+5. For a whole-document upload, open **Original support form** from the MERIT workspace and compare suggestions with source facts.
 6. Mark every section complete.
 7. Open `/evaluations/<evaluation-id>/sign` and sign as `RATER`.
 
@@ -197,17 +197,17 @@ Expected result: status becomes `SUBMITTED`. A subsequent HRC acceptance/return 
 
 Current limitation: the OER builder does not have full NCOER feature parity, so this path validates officer eligibility, assignment snapshotting, access boundaries, form selection, and senior-rater handoff. Use the Davis NCOER path for the complete authoring and supplementary-review test.
 
-## AI Boundary
+## MERIT Assistance Boundary
 
-AI is currently a usable end-to-end feature for **rater Part IV bullet drafting**:
+MERIT assistance is currently usable end to end for **rater Part IV bullet drafting**:
 
 - The rater selects support-form accomplishments or provides a factual description.
 - The API generates draft bullets, captures immutable evidence snapshots, runs deterministic checks, and requires human accept/edit/reject review.
 - The rater remains accountable for the final saved content.
 
-AI is **not currently a usable end-to-end feature for senior-rater comments**. The generation API allows a senior-rater caller, but the senior-rater screen has no drafting UI and the section policy prevents a senior rater from saving rater-owned Part IV content. The senior-rater assessment and succession-planning fields are currently completed manually.
+MERIT assistance is **not currently an end-to-end senior-rater-comment feature**. Senior-rater assessment and succession-planning fields remain manual.
 
-The AI calls require `OPENAI_API_KEY` in the backend environment. Without it, generation fails closed; manual entry remains available for workflow testing.
+MERIT generation requires `OPENAI_API_KEY` in the backend environment. Without it, generation fails closed and manual entry remains available.
 
 ## Additional Tests Worth Running
 
@@ -217,7 +217,7 @@ The AI calls require `OPENAI_API_KEY` in the backend environment. Without it, ge
 | Senior rater attempts to sign before rater | `409 SIGNATURE_OUT_OF_SEQUENCE`. |
 | Senior rater attempts to sign without an overall assessment | `409 SENIOR_RATER_ASSESSMENT_REQUIRED`. |
 | Reviewer attempts to sign before Soldier acknowledgment | `409 SIGNATURE_OUT_OF_SEQUENCE`. |
-| Reviewer attempts AI generation or entry confirmation | `403`. |
+| Reviewer attempts MERIT generation or entry confirmation | `403`. |
 | Unrelated persona requests a Davis support form or evaluation by ID | `404` or `403`, without record content. |
 | Reuse a consumed support form for another evaluation | `409 SUPPORT_FORM_UNAVAILABLE`. |
 | Assignment correction after creation | Existing evaluation snapshot remains unchanged; only future evaluations use the replacement assignment. |
@@ -235,7 +235,7 @@ The four-person authoring workflow is the core demonstration, but these flows sh
 | Signature decline and correction | Decline reason is retained; content changes stale the affected signature; correct official must re-sign. |
 | Submission and HRC processing | Complete evaluation passes consistency checks, submits to HDQA, then exercises returned and accepted terminal states. |
 | Milestones and notifications | Counseling/suspense dates are created and overdue reminders target the correct role. |
-| AI failure behavior | Missing `OPENAI_API_KEY` fails generation safely without blocking manual rater entry. |
+| MERIT failure behavior | Missing `OPENAI_API_KEY` fails generation safely without blocking manual entry. |
 
 ## Known Test Constraints
 
@@ -243,3 +243,66 @@ The four-person authoring workflow is the core demonstration, but these flows sh
 - Existing quarantined records are intentionally excluded from normal workflows and must not be used as test fixtures.
 - Frontend automation still references obsolete seed IDs and must be rewritten around the new isolated test fixtures before it can serve as the acceptance suite.
 - The legacy global role name is `REVIEWER`; its migration to `SUPPLEMENTARY_REVIEWER` remains staged for stored-data compatibility.
+
+## Customer Acceptance Checklist
+
+Use an isolated, published assignment-backed fixture set against the real backend. Record tester, date/time, environment/build, persona, result, and supporting evidence for each failure.
+
+### Rated Soldier and support form
+
+- [ ] The Soldier sees only their current support form and assignment.
+- [ ] The Soldier can author and submit a goal for assigned-rater review.
+- [ ] The Soldier can add an accomplishment and allowed proof artifact to their own record.
+- [ ] Artifact validation and discrepancy disclosure behave as expected.
+- [ ] A complete finalized support form is required before evaluation initiation.
+- [ ] Evaluation creation selects an effective published assignment and writes an immutable rating snapshot.
+- [ ] Reuse of a consumed support form is rejected.
+
+### Rater and MERIT-assisted drafting
+
+- [ ] Only the assigned rater can edit rater-owned content.
+- [ ] Selected accomplishments/observations produce reviewable MERIT suggestions, not direct final bullets.
+- [ ] A new generation round replaces undecided/rejected candidates rather than appending another set.
+- [ ] Every MERIT suggestion requires accept, edit, or reject review before section completion.
+- [ ] Accepted MERIT content retains a visible evidence/provenance trail.
+- [ ] Unsupported facts and prohibited language surface before completion/submission.
+- [ ] Duplicate accept/retry requests do not create duplicate final bullets.
+
+### Senior Rater, Soldier acknowledgment, and supplementary review
+
+- [ ] The Senior Rater can view rater content but edit only senior-rater-owned content.
+- [ ] Signatures are rejected out of sequence.
+- [ ] The Soldier can acknowledge only after required rating-official work is complete.
+- [ ] A required supplementary reviewer sees a read-only record and can sign only at the correct stage.
+- [ ] A supplementary reviewer cannot author narrative, generate suggestions, or confirm evidence.
+
+### Final form, submission, and audit
+
+- [ ] Final-form review renders the current populated PDF.
+- [ ] Editing reviewed content invalidates the prior final-form confirmation/signature where applicable.
+- [ ] Draft/non-final PDF output displays `DRAFT - NOT FOR OFFICIAL USE`.
+- [ ] Submission is blocked while a blocking consistency error remains.
+- [ ] A user outside the relationship cannot retrieve the evaluation or PDF by guessing an ID.
+- [ ] Audit history contains evidence activity, MERIT suggestion decisions, workflow/signature changes, and PDF export.
+
+### OER boundary
+
+- [ ] The officer fixture selects the correct OER form family and immutable assignment snapshot.
+- [ ] Officer, rater, and senior rater see only authorized work.
+- [ ] The acceptance record notes that OER authoring is not yet at full NCOER parity.
+
+## Acceptance Results Handoff
+
+| Field | Record |
+| --- | --- |
+| Environment / build | |
+| Database/schema status | |
+| Fixture version | |
+| Test date and participants | |
+| Required NCOER path | Pass / Fail |
+| OER boundary | Pass / Fail / Not in scope |
+| Authorization negative checks | Pass / Fail |
+| Blocking defects | |
+| Non-blocking observations | |
+| Evidence location | |
+| Customer decision | Accept / Accept with conditions / Reject |
