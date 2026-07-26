@@ -2,15 +2,19 @@
   "name": "ees2-backend",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "description": "EES 2.0 backend — Express + TypeScript API (Prisma, Supabase auth, OpenAI, PDF)",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx watch mock-server.ts",
-    "dev:real": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
+    "dev": "node scripts/with-node22.mjs tsx watch src/index.ts",
+    "dev:real": "node scripts/with-node22.mjs tsx watch src/index.ts",
+    "dev:mock": "node scripts/with-node22.mjs tsx watch mock-server.ts",
+    "build": "node scripts/with-node22.mjs tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "lint": "eslint \"src/**/*.ts\"",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node scripts/with-node22.mjs tsc --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
@@ -24,7 +28,8 @@
     "test:pm-demo-readiness": "tsx scripts/test-pm-demo-readiness.ts",
     "ingest:regulations": "tsx src/lib/regulations/ingest.ts",
     "seed:ncoer-demo-content": "tsx scripts/seed-ncoer-demo-content.ts",
-    "seed:rating-scheme-demo": "tsx scripts/seed-rating-scheme-demo.ts"
+    "seed:rating-scheme-demo": "tsx scripts/seed-rating-scheme-demo.ts",
+    "storage:ensure": "node scripts/with-node22.mjs tsx scripts/ensure-storage-buckets.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

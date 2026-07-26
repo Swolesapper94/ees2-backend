@@ -1,7 +1,7 @@
-# EES 2.0 — Backend
+# MERIT Backend
 
-Express + TypeScript API for EES 2.0. Owns the database (Prisma/Postgres),
-Supabase auth verification, OpenAI bullet generation, the consistency check,
+Express + TypeScript API for MERIT. Owns the database (Prisma/Postgres),
+Supabase auth verification, MERIT generation pipelines, the consistency check,
 and NCOER PDF generation.
 
 ## Stack
@@ -20,14 +20,19 @@ npm install
 cp .env.example .env          # fill in DATABASE_URL, SUPABASE_*, OPENAI_API_KEY
 npm run prisma:generate
 npm run prisma:push           # push schema to your Supabase DB
+npm run storage:ensure        # create/update evidence artifact bucket
 npm run seed                  # optional demo data
 npm run dev                   # http://localhost:4000
 ```
 
+Node.js 22+ is required and enforced by the npm scripts. `npm run dev` starts
+the real Prisma/Supabase API. The no-database mock is opt-in via
+`npm run dev:mock` and must not be used for integration validation.
+
 ## Environment
 
-See [.env.example](.env.example). The frontend origin must be listed in
-`CORS_ORIGIN`.
+See [.env.example](.env.example). Every web/mobile origin must be listed in
+`CORS_ORIGIN` (for local development: `http://localhost:3000,http://localhost:5173`).
 
 ## API surface
 
