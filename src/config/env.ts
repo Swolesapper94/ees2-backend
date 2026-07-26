@@ -18,7 +18,7 @@ function required(name: string, fallback?: string): string {
 export const env = {
   nodeEnv,
   port: Number(process.env.PORT ?? 4000),
-  corsOrigins: (process.env.CORS_ORIGIN ?? "http://localhost:3000")
+  corsOrigins: (process.env.CORS_ORIGIN ?? "http://localhost:3000,http://localhost:5173,http://localhost:5174")
     .split(",")
     .map((o) => o.trim())
     .filter(Boolean),
