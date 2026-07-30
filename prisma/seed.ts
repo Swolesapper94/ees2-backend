@@ -356,6 +356,49 @@ async function main() {
     ensurePublishedAssignment({ id: "demo-assignment-torres-2026", ratedSoldierId: ltTorres.id, raterId: cpSsmith.id, seniorRaterId: majLee.id, unitId: unit.id, ratingSchemeId: ratingScheme.id, formCategory: "OER", createdByUserId: cpSsmith.id }),
   ]);
 
+  // Current mobile-capture form. Keep the historical dev-sf-davis form
+  // unchanged because it is consumed by the 2024-2025 evaluation fixture.
+  const davisMobileSupportForm = await prisma.supportForm.upsert({
+    where: { id: "dev-sf-davis-mobile-2026" },
+    update: {
+      ratingChainId: davisChain.id,
+      ratingSchemeAssignmentId: "demo-assignment-davis-2026",
+      ratingPeriodStart: DEMO_ASSIGNMENT_START,
+      ratingPeriodEnd: new Date("2027-02-28T23:59:59Z"),
+      status: "ACTIVE",
+      isActive: true,
+    },
+    create: {
+      id: "dev-sf-davis-mobile-2026",
+      soldierId: sgtDavis.id,
+      ratingChainId: davisChain.id,
+      ratingSchemeAssignmentId: "demo-assignment-davis-2026",
+      evalCategory: "NCOER",
+      ratingPeriodStart: DEMO_ASSIGNMENT_START,
+      ratingPeriodEnd: new Date("2027-02-28T23:59:59Z"),
+      dutyTitle: "Team Leader",
+      dutyMosc: "11B2O",
+      dailyDutiesScope: "Leads a four-Soldier fire team and maintains personnel, training, and equipment readiness.",
+      areasOfEmphasis: "Small-unit readiness, accountability, and leader development.",
+      appointedDuties: "Team equipment custodian",
+      ssdNcoesMet: true,
+      status: "ACTIVE",
+      initiatedByUserId: sgtDavis.id,
+    },
+  });
+  await Promise.all([
+    prisma.goal.upsert({
+      where: { id: "dev-goal-davis-mobile-leads" },
+      update: { supportFormId: davisMobileSupportForm.id },
+      create: { id: "dev-goal-davis-mobile-leads", supportFormId: davisMobileSupportForm.id, sectionKey: "LEADS", title: "Build a disciplined, ready team", description: "Lead a four-Soldier team that meets readiness and accountability requirements.", category: "ROUTINE", targetDate: new Date("2027-02-28T23:59:59Z"), createdById: sgtDavis.id, createdByRole: "RATED_SOLDIER", approvalStatus: "APPROVED", approvedByRaterId: ssgJohnson.id, approvedAt: DEMO_ASSIGNMENT_START },
+    }),
+    prisma.goal.upsert({
+      where: { id: "dev-goal-davis-mobile-develops" },
+      update: { supportFormId: davisMobileSupportForm.id },
+      create: { id: "dev-goal-davis-mobile-develops", supportFormId: davisMobileSupportForm.id, sectionKey: "DEVELOPS", title: "Develop junior Soldiers", description: "Coach junior Soldiers so they can assume greater responsibility.", category: "PERSONAL_DEVELOPMENT", targetDate: new Date("2027-02-28T23:59:59Z"), createdById: sgtDavis.id, createdByRole: "RATED_SOLDIER", approvalStatus: "APPROVED", approvedByRaterId: ssgJohnson.id, approvedAt: DEMO_ASSIGNMENT_START },
+    }),
+  ]);
+
   // ── Support Form — SGT Davis ───────────────────────────────────
   await prisma.goal.deleteMany({ where: { supportFormId: "dev-sf-davis" } });
   await prisma.supportFormEntryArtifact.deleteMany({ where: { entry: { supportFormId: "dev-sf-davis" } } });

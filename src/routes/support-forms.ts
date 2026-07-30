@@ -91,6 +91,7 @@ async function authorizeSupportFormWorkflowAction(
 }
 
 const createEntrySchema = z.object({
+  clientRequestId: z.string().uuid().optional(),
   section: z.string().min(1),
   entryType: z.enum(["OBJECTIVE", "ACCOMPLISHMENT"]),
   rawText: z.string().min(1),
@@ -98,6 +99,16 @@ const createEntrySchema = z.object({
   isHighlight: z.boolean().default(false),
   entryDate: z.coerce.date().optional(),
   goalIds: z.array(z.string().min(1)).max(20).optional(),
+});
+
+const resubmitEntrySchema = z.object({
+  rawText: z.string().trim().min(1).max(5000),
+  response: z.string().trim().min(1).max(1000),
+  replacementArtifactIds: z.array(z.string().min(1)).max(3).default([]),
+});
+
+const withdrawEntrySchema = z.object({
+  reason: z.string().trim().max(500).optional(),
 });
 
 const ARTIFACT_TYPES = ["CERTIFICATE", "SCORE_SHEET", "PHOTO", "DOCUMENT", "OTHER"] as const;
@@ -156,11 +167,47 @@ supportFormsRouter.get(
     const forms = await prisma.supportForm.findMany({
       where: { soldierId: requestedSoldierId, disposition: "ACTIVE", ...relationshipScope },
       include: {
-        entries: { include: { artifacts: true, createdByUser: { select: { firstName: true, lastName: true, rank: true } }, assistedUser: { select: { firstName: true, lastName: true, rank: true } } }, orderBy: { entryDate: "desc" } },
+        entries: { include: { artifacts: true, goalLinks: { include: { goal: true } }, createdByUser: { select: { firstName: true, lastName: true, rank: true } }, assistedUser: { select: { firstName: true, lastName: true, rank: true } } }, orderBy: { entryDate: "desc" } },
       },
       orderBy: { createdAt: "desc" },
     });
     res.json(forms);
+  }),
+);
+
+// GET /api/support-forms/rater-queue
+// Returns the exact Soldier submission record for the currently assigned
+// rater, authorized against the active published assignment.
+supportFormsRouter.get(
+  "/rater-queue",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    const now = new Date();
+    const entries = await prisma.supportFormEntry.findMany({
+      where: {
+        confirmationStatus: "UNREVIEWED",
+        submissionSource: "MOBILE_CAPTURE",
+        withdrawnAt: null,
+        supportForm: {
+          disposition: "ACTIVE",
+          ratingSchemeAssignment: {
+            raterId: req.user.id,
+            status: "PUBLISHED",
+            effectiveFrom: { lte: now },
+            OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }],
+          },
+        },
+      },
+      include: {
+        artifacts: true,
+        createdByUser: { select: { id: true, firstName: true, lastName: true, rank: true } },
+        goalLinks: { include: { goal: { select: { id: true, title: true, sectionKey: true } } } },
+        supportForm: { include: { soldier: { select: { id: true, firstName: true, lastName: true, rank: true } } } },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+    res.json(entries);
   }),
 );
 
@@ -271,7 +318,7 @@ supportFormsRouter.get(
     const form = await prisma.supportForm.findUnique({
       where: { id: req.params.id },
       include: {
-        entries: { include: { artifacts: true, createdByUser: { select: { firstName: true, lastName: true, rank: true } }, assistedUser: { select: { firstName: true, lastName: true, rank: true } } }, orderBy: { entryDate: "desc" } },
+        entries: { include: { artifacts: true, goalLinks: { include: { goal: true } }, createdByUser: { select: { firstName: true, lastName: true, rank: true } }, assistedUser: { select: { firstName: true, lastName: true, rank: true } } }, orderBy: { entryDate: "desc" } },
         soldier: true,
         ratingChain: true,
       },
@@ -391,7 +438,10 @@ supportFormsRouter.post(
   asyncHandler(async (req, res) => {
     if (!req.user) throw new HttpError(401, "Not authenticated");
     const body = createEntrySchema.parse(req.body);
-    const form = await prisma.supportForm.findUnique({ where: { id: req.params.id }, include: { ratingChain: true } });
+    const form = await prisma.supportForm.findUnique({
+      where: { id: req.params.id },
+      include: { ratingChain: true, ratingSchemeAssignment: true },
+    });
     const entryAccess = form
       ? await authorizeSupportFormEntryCreate(req.user, form, body.entryType, form.ratingChain)
       : { allowed: false, source: "NONE" as const };
@@ -400,6 +450,31 @@ supportFormsRouter.post(
     }
     if (body.entryType === "OBJECTIVE") {
       throw new HttpError(422, "Create performance goals through the Goals workflow; new objective entries are no longer accepted.", "OBJECTIVE_ENTRY_DEPRECATED");
+    }
+    if (!form.ratingSchemeAssignment || form.ratingSchemeAssignment.status !== "PUBLISHED") {
+      throw new HttpError(409, "A current published rating assignment is required to submit an entry.", "RATING_ASSIGNMENT_NOT_EFFECTIVE");
+    }
+    const now = new Date();
+    const assignment = form.ratingSchemeAssignment;
+    if (assignment.effectiveFrom > now || (assignment.effectiveTo && assignment.effectiveTo < now)) {
+      throw new HttpError(409, "The rating assignment is not currently effective.", "RATING_ASSIGNMENT_NOT_EFFECTIVE");
+    }
+    const entryDate = body.entryDate ?? now;
+    if (entryDate > now) {
+      throw new HttpError(422, "The event date cannot be in the future.", "ENTRY_DATE_IN_FUTURE");
+    }
+    if (entryDate < form.ratingPeriodStart || (form.ratingPeriodEnd && entryDate > form.ratingPeriodEnd)) {
+      throw new HttpError(422, "The event date must fall within the active rating period.", "ENTRY_DATE_OUTSIDE_RATING_PERIOD");
+    }
+    if (body.clientRequestId) {
+      const existing = await prisma.supportFormEntry.findUnique({ where: { clientRequestId: body.clientRequestId } });
+      if (existing) {
+        if (existing.supportFormId !== form.id || existing.createdByUserId !== req.user.id) {
+          throw new HttpError(409, "This submission identifier is already in use.", "ENTRY_SUBMISSION_CONFLICT");
+        }
+        res.json(existing);
+        return;
+      }
     }
     if (body.goalIds?.length) {
       if (entryAccess.source === "DELEGATION") throw new HttpError(403, "Delegates cannot link accomplishments to a Soldier's goals.");
@@ -416,6 +491,8 @@ supportFormsRouter.post(
           : "SERVICING_ADMIN";
     const entry = await prisma.supportFormEntry.create({
       data: {
+        clientRequestId: body.clientRequestId,
+        submissionSource: req.get("X-MERIT-CLIENT") === "mobile" ? "MOBILE_CAPTURE" : "MERIT_PLATFORM",
         supportFormId: req.params.id!,
         section: body.section as never,
         entryType: body.entryType as never,
@@ -427,7 +504,7 @@ supportFormsRouter.post(
         ...(delegationGrant
           ? { onBehalfOfUserId: form.soldierId, delegationGrantId: delegationGrant.id }
           : {}),
-        ...(body.entryDate ? { entryDate: body.entryDate } : {}),
+        entryDate,
         ...(body.goalIds?.length ? { goalLinks: { create: body.goalIds.map((goalId) => ({ goalId, linkedById: req.user!.id, linkedByRole: req.user!.id === form.soldierId ? "RATED_SOLDIER" : "RATER" })) } } : {}),
       },
     });
@@ -447,7 +524,138 @@ supportFormsRouter.post(
       });
     }
 
+    await notify({
+      userId: assignment.raterId,
+      category: "COLLABORATION",
+      title: "New Mobile Entry Awaiting Review",
+      message: "A rated Soldier submitted a support-form accomplishment for your review.",
+      actionUrl: `/support-form?formId=${form.id}&queue=unreviewed`,
+      actionLabel: "Review entry",
+    });
+
     res.status(201).json(entry);
+  }),
+);
+
+// POST /api/support-forms/entries/:entryId/resubmit
+// A clarification correction creates a new source version while preserving
+// the exact prior text, rater note, and artifact IDs in the audit record.
+supportFormsRouter.post(
+  "/entries/:entryId/resubmit",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    const body = resubmitEntrySchema.parse(req.body);
+    const entry = await prisma.supportFormEntry.findUnique({
+      where: { id: req.params.entryId },
+      include: {
+        artifacts: { select: { id: true, fileUrl: true, type: true, aiCaptionStatus: true } },
+        supportForm: { include: { ratingSchemeAssignment: true } },
+      },
+    });
+    if (!entry || entry.supportForm.soldierId !== req.user.id) {
+      throw new HttpError(404, "Support form entry not found.");
+    }
+    if (entry.confirmationStatus !== "NEEDS_CLARIFICATION") {
+      throw new HttpError(409, "Only an entry awaiting clarification can be resubmitted.");
+    }
+    if (entry.usedInEvalId || entry.lockedAt) {
+      throw new HttpError(409, "An entry already used in an evaluation cannot be corrected.");
+    }
+    const assignment = entry.supportForm.ratingSchemeAssignment;
+    const now = new Date();
+    if (!assignment || assignment.status !== "PUBLISHED" || assignment.effectiveFrom > now || (assignment.effectiveTo && assignment.effectiveTo < now)) {
+      throw new HttpError(409, "A current published rating assignment is required to resubmit this entry.", "RATING_ASSIGNMENT_NOT_EFFECTIVE");
+    }
+    const replacementIds = new Set(body.replacementArtifactIds);
+    if ([...replacementIds].some((id) => !entry.artifacts.some((artifact) => artifact.id === id))) {
+      throw new HttpError(422, "Replacement evidence must belong to the clarified entry.");
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.auditLog.create({
+        data: {
+          actorId: req.user!.id,
+          action: "ENTRY_CLARIFICATION_RESUBMITTED",
+          entityType: "SupportFormEntry",
+          entityId: entry.id,
+          metadata: {
+            response: body.response,
+            priorVersion: entry.sourceVersion,
+            originalSubmission: {
+              rawText: entry.rawText,
+              clarificationNote: entry.clarificationNote,
+              confirmationStatus: entry.confirmationStatus,
+              confirmedById: entry.confirmedById,
+              confirmedAt: entry.confirmedAt,
+              artifacts: entry.artifacts.filter((artifact) => !replacementIds.has(artifact.id)),
+            },
+            replacementArtifacts: entry.artifacts.filter((artifact) => replacementIds.has(artifact.id)),
+          },
+        },
+      });
+      return tx.supportFormEntry.update({
+        where: { id: entry.id },
+        data: {
+          rawText: body.rawText,
+          sourceVersion: { increment: 1 },
+          lastEditedByUserId: req.user!.id,
+          confirmationStatus: "UNREVIEWED",
+          confirmedById: null,
+          confirmedAt: null,
+        },
+        include: { artifacts: true, createdByUser: { select: { firstName: true, lastName: true, rank: true } } },
+      });
+    });
+
+    await notify({
+      userId: assignment.raterId,
+      category: "COLLABORATION",
+      title: "Clarification Resubmitted",
+      message: "The rated Soldier responded to your clarification request and resubmitted the entry.",
+      actionUrl: `/support-form?formId=${entry.supportFormId}&queue=unreviewed`,
+      actionLabel: "Review correction",
+    });
+    res.json(updated);
+  }),
+);
+
+supportFormsRouter.post(
+  "/entries/:entryId/withdraw",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    const body = withdrawEntrySchema.parse(req.body);
+    const entry = await prisma.supportFormEntry.findUnique({
+      where: { id: req.params.entryId },
+      include: { artifacts: true, supportForm: { include: { ratingSchemeAssignment: true } } },
+    });
+    if (!entry || entry.supportForm.soldierId !== req.user.id) throw new HttpError(404, "Support form entry not found.");
+    if (entry.withdrawnAt) throw new HttpError(409, "This entry has already been withdrawn.");
+    if (entry.confirmationStatus !== "UNREVIEWED" || entry.lockedAt || entry.usedInEvalId) {
+      throw new HttpError(409, "Only an unreviewed entry that has not been used in an evaluation can be withdrawn.");
+    }
+    const withdrawnAt = new Date();
+    await prisma.$transaction([
+      prisma.auditLog.create({
+        data: {
+          actorId: req.user.id,
+          action: "ENTRY_WITHDRAWN",
+          entityType: "SupportFormEntry",
+          entityId: entry.id,
+          metadata: { reason: body.reason ?? null, sourceVersion: entry.sourceVersion, rawText: entry.rawText, artifacts: entry.artifacts.map(({ id, fileUrl, type, aiCaptionStatus }) => ({ id, fileUrl, type, aiCaptionStatus })) },
+        },
+      }),
+      prisma.supportFormEntry.update({
+        where: { id: entry.id },
+        data: { withdrawnAt, withdrawnById: req.user.id, withdrawalReason: body.reason ?? null },
+      }),
+    ]);
+    const raterId = entry.supportForm.ratingSchemeAssignment?.raterId;
+    if (raterId) {
+      await notify({ userId: raterId, category: "COLLABORATION", title: "Support Entry Withdrawn", message: "The rated Soldier withdrew an unreviewed mobile entry.", actionUrl: `/support-form?formId=${entry.supportFormId}`, actionLabel: "Open support form" });
+    }
+    res.status(204).send();
   }),
 );
 
@@ -551,6 +759,10 @@ supportFormsRouter.post(
     if (body.flaggedByServiceMember && !body.flagNote) {
       throw new HttpError(400, "flagNote is required when flagging a discrepancy.");
     }
+    const artifactCount = await prisma.supportFormEntryArtifact.count({ where: { entryId: entry.id } });
+    if (artifactCount >= 3) {
+      throw new HttpError(409, "An entry can contain at most three evidence artifacts.", "ARTIFACT_LIMIT_REACHED");
+    }
 
     const fileExt = file.originalname.split(".").pop() ?? "bin";
     const storagePath = `support-form-entries/${entryId}/${Date.now()}.${fileExt}`;
@@ -561,6 +773,15 @@ supportFormsRouter.post(
       .from("evaluations")
       .upload(storagePath, file.buffer, { contentType: file.mimetype, upsert: false });
     if (uploadError) {
+      await prisma.auditLog.create({
+        data: {
+          actorId: req.user.id,
+          action: "ARTIFACT_UPLOAD_FAILED",
+          entityType: "SupportFormEntry",
+          entityId: entry.id,
+          metadata: { fileName: file.originalname, type: body.type, error: uploadError.message, entryPreserved: true },
+        },
+      });
       throw new HttpError(500, `Storage upload failed: ${uploadError.message}`);
     }
 
@@ -601,6 +822,33 @@ supportFormsRouter.post(
     });
 
     res.status(201).json(artifact);
+  }),
+);
+
+// Re-run AI analysis against the already-secured original. Storage is not
+// touched, so captioning failure cannot remove evidence.
+supportFormsRouter.post(
+  "/artifacts/:artifactId/reprocess",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (!req.user) throw new HttpError(401, "Not authenticated");
+    const artifact = await prisma.supportFormEntryArtifact.findUnique({
+      where: { id: req.params.artifactId },
+      include: { entry: { include: { supportForm: { include: { ratingSchemeAssignment: true } } } } },
+    });
+    if (!artifact) throw new HttpError(404, "Artifact not found.");
+    const assignment = artifact.entry.supportForm.ratingSchemeAssignment;
+    const allowed = req.user.roles.includes("ADMIN") || artifact.entry.supportForm.soldierId === req.user.id || assignment?.raterId === req.user.id;
+    if (!allowed) throw new HttpError(403, "You are not authorized to reprocess this artifact.");
+    await prisma.supportFormEntryArtifact.update({
+      where: { id: artifact.id },
+      data: { aiCaptionStatus: "PENDING", aiCaptionError: null },
+    });
+    await prisma.auditLog.create({
+      data: { actorId: req.user.id, action: "ARTIFACT_ANALYSIS_RETRIED", entityType: "SupportFormEntryArtifact", entityId: artifact.id },
+    });
+    generateArtifactCaption(artifact.id).catch((error) => console.error("[artifacts] Reprocessing error:", error));
+    res.status(202).json({ id: artifact.id, aiCaptionStatus: "PENDING", fileUrl: artifact.fileUrl });
   }),
 );
 
@@ -744,9 +992,20 @@ supportFormsRouter.patch(
         action: "ENTRY_CONFIRMATION_CHANGED",
         entityType: "SupportFormEntry",
         entityId: entry.id,
-        metadata: { status: body.status },
+        metadata: { status: body.status, clarificationNote: body.clarificationNote ?? null },
       },
     });
+
+    if (body.status === "NEEDS_CLARIFICATION") {
+      await notify({
+        userId: entry.supportForm.soldierId,
+        category: "COLLABORATION",
+        title: "Clarification Requested",
+        message: body.clarificationNote!,
+        actionUrl: `/support-form?formId=${entry.supportFormId}&entryId=${entry.id}`,
+        actionLabel: "Respond in MERIT",
+      });
+    }
 
     res.json(updated);
   }),
@@ -839,13 +1098,21 @@ supportFormsRouter.delete(
     if (!req.user) throw new HttpError(401, "Not authenticated");
     // Ownership check (MVP audit 5.2) — previously any authenticated user
     // could delete any artifact by ID.
-    await requireArtifactOwner(req.params.artifactId!, req.user);
+    const artifact = await requireArtifactOwner(req.params.artifactId!, req.user);
     await prisma.auditLog.create({
       data: {
         actorId: req.user.id,
         action: "ARTIFACT_DELETED",
         entityType: "SupportFormEntryArtifact",
         entityId: req.params.artifactId!,
+        metadata: {
+          entryId: artifact.entryId,
+          fileUrl: artifact.fileUrl,
+          type: artifact.type,
+          aiCaption: artifact.aiCaption,
+          aiCaptionStatus: artifact.aiCaptionStatus,
+          retention: "STORAGE_OBJECT_RETAINED_FOR_AUDIT",
+        },
       },
     });
     await prisma.supportFormEntryArtifact.delete({ where: { id: req.params.artifactId } });

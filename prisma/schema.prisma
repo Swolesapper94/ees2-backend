@@ -297,6 +297,11 @@ enum EntryConfirmationStatus {
   NOT_USED // Rater reviewed but chose not to rely on this entry
 }
 
+enum EntrySubmissionSource {
+  MERIT_PLATFORM
+  MOBILE_CAPTURE
+}
+
 enum SupportFormStatus {
   DRAFT
   INITIAL_COUNSELING_COMPLETE
@@ -873,6 +878,7 @@ model SupportForm {
 
 model SupportFormEntry {
   id            String      @id @default(cuid())
+  clientRequestId String?   @unique
   supportFormId String
   supportForm   SupportForm @relation(fields: [supportFormId], references: [id])
   entryDate     DateTime    @default(now())
@@ -893,6 +899,7 @@ model SupportFormEntry {
   lockedAt             DateTime?
   lockReason           String?
   sourceVersion        Int @default(1)
+  submissionSource     EntrySubmissionSource @default(MERIT_PLATFORM)
   tags          String[] // Free-form tags for filtering
   isHighlight   Boolean   @default(false) // Flagged as strongest entry for this period
   counseled     Boolean   @default(false) // Was this discussed in a counseling session?
@@ -906,6 +913,9 @@ model SupportFormEntry {
   confirmedById      String?
   confirmedAt        DateTime?
   clarificationNote  String? // Short note when status = NEEDS_CLARIFICATION
+  withdrawnAt        DateTime?
+  withdrawnById      String?
+  withdrawalReason   String?
 
   artifacts SupportFormEntryArtifact[]
   goalLinks GoalEntryLink[]

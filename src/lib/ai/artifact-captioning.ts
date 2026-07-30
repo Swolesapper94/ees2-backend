@@ -74,6 +74,17 @@ export async function generateArtifactCaption(artifactId: string): Promise<void>
         aiCaptionError: null,
       },
     });
+    if (artifact.createdByUserId) {
+      await prisma.auditLog.create({
+        data: {
+          actorId: artifact.createdByUserId,
+          action: "ARTIFACT_ANALYSIS_COMPLETED",
+          entityType: "SupportFormEntryArtifact",
+          entityId: artifact.id,
+          metadata: { entryId: artifact.entryId, evidencePreserved: true },
+        },
+      });
+    }
   } catch (err) {
     console.error("[artifact-captioning] Error captioning artifact:", artifactId, err);
     await prisma.supportFormEntryArtifact.update({
@@ -83,5 +94,16 @@ export async function generateArtifactCaption(artifactId: string): Promise<void>
         aiCaptionError: sanitizeTextForStorage(err instanceof Error ? err.message : String(err)),
       },
     });
+    if (artifact.createdByUserId) {
+      await prisma.auditLog.create({
+        data: {
+          actorId: artifact.createdByUserId,
+          action: "ARTIFACT_ANALYSIS_FAILED",
+          entityType: "SupportFormEntryArtifact",
+          entityId: artifact.id,
+          metadata: { entryId: artifact.entryId, evidencePreserved: true },
+        },
+      });
+    }
   }
 }
