@@ -17,7 +17,7 @@ async function main() {
   const existing = buckets.find((bucket) => bucket.name === BUCKET);
   if (existing) {
     const { error } = await storage.updateBucket(BUCKET, {
-      public: true,
+      public: false,
       fileSizeLimit: MAX_ARTIFACT_BYTES,
       allowedMimeTypes: ALLOWED_MIME_TYPES,
     });
@@ -27,7 +27,7 @@ async function main() {
   }
 
   const { error } = await storage.createBucket(BUCKET, {
-    public: true,
+    public: false,
     fileSizeLimit: MAX_ARTIFACT_BYTES,
     allowedMimeTypes: ALLOWED_MIME_TYPES,
   });

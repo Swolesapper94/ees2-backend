@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { asyncHandler, HttpError } from "@/middleware/error";
 import { requireAuth } from "@/middleware/auth";
 import { documentationSignalsForForm } from "@/lib/support-form/signals";
+import { withEvidenceAccessUrls } from "@/lib/evidence-storage";
 
 export const supportFormGoalsRouter = Router();
 
@@ -125,7 +126,17 @@ supportFormGoalsRouter.get("/:formId/goals/:goalId/progress", requireAuth, async
     counselingDiscussions: { include: { counselingSession: true }, orderBy: { counselingSession: { sessionDate: "asc" } } },
   } });
   if (!goal) throw new HttpError(404, "Goal not found");
-  res.json({ ...goal, progressTrend: goal.counselingDiscussions.map((discussion) => ({ sessionDate: discussion.counselingSession.sessionDate, percentAchieved: discussion.percentAchieved })) });
+  res.json({
+    ...goal,
+    linkedEntries: await Promise.all(goal.linkedEntries.map(async (link) => ({
+      ...link,
+      supportFormEntry: {
+        ...link.supportFormEntry,
+        artifacts: await withEvidenceAccessUrls(link.supportFormEntry.artifacts),
+      },
+    }))),
+    progressTrend: goal.counselingDiscussions.map((discussion) => ({ sessionDate: discussion.counselingSession.sessionDate, percentAchieved: discussion.percentAchieved })),
+  });
 }));
 
 supportFormGoalsRouter.post("/:formId/goals/:goalId/carry-forward", requireAuth, asyncHandler(async (req, res) => {

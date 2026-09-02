@@ -27,6 +27,7 @@ import {
 import { requireEvalChainRole, requireEntriesBelongToEval, requireObservationsBelongToEval } from "@/lib/utils/chain-auth";
 import { checkUnsupportedFacts } from "@/lib/ai/unsupported-fact-check";
 import { sanitizeBulletText } from "@/lib/ai/openai";
+import { evidenceStorageReference, loadEvidenceBuffer } from "@/lib/evidence-storage";
 
 export const supportFormUploadsRouter = Router();
 
@@ -168,11 +169,7 @@ supportFormUploadsRouter.post(
         throw new HttpError(500, `Storage upload failed: ${uploadError.message}`);
       }
 
-      const { data: publicData } = supabase.storage
-        .from("evaluations")
-        .getPublicUrl(storagePath);
-
-      fileUrl = publicData.publicUrl;
+      fileUrl = evidenceStorageReference(storagePath);
       uploadedSuccessfully = true;
     } catch (err) {
       // Handle missing Supabase service role key gracefully for dev.
@@ -364,9 +361,7 @@ supportFormUploadsRouter.get(
       return;
     }
 
-    const fileResponse = await fetch(latestUpload.fileUrl);
-    if (!fileResponse.ok) throw new HttpError(502, "Unable to retrieve the uploaded support form.");
-    res.send(Buffer.from(await fileResponse.arrayBuffer()));
+    res.send(await loadEvidenceBuffer(latestUpload.fileUrl));
   }),
 );
 
@@ -409,7 +404,7 @@ supportFormUploadsRouter.get(
       hasUpload: true,
       uploadId: latestUpload.id,
       originalFileName: latestUpload.originalFileName,
-      fileUrl: latestUpload.fileUrl,
+      fileUrl: `/api/support-form-uploads/${evalId}/file`,
       fileType: latestUpload.fileType,
       parseStatus: latestUpload.parseStatus,
       parseError: latestUpload.parseError,
@@ -852,4 +847,3 @@ supportFormUploadsRouter.patch(
     }
   }),
 );
-

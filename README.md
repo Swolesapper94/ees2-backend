@@ -19,8 +19,8 @@ and NCOER PDF generation.
 npm install
 cp .env.example .env          # fill in DATABASE_URL, SUPABASE_*, OPENAI_API_KEY
 npm run prisma:generate
-npm run prisma:push           # push schema to your Supabase DB
-npm run storage:ensure        # create/update evidence artifact bucket
+npm run prisma:push           # local/disposable databases only
+npm run storage:ensure        # create/update the private evidence bucket
 npm run seed                  # optional demo data
 npm run dev                   # http://localhost:4000
 ```
@@ -33,6 +33,14 @@ the real Prisma/Supabase API. The no-database mock is opt-in via
 
 See [.env.example](.env.example). Every web/mobile origin must be listed in
 `CORS_ORIGIN` (for local development: `http://localhost:3000,http://localhost:5173`).
+
+Hosted schema changes are recorded under `supabase/migrations/`. Evidence is
+stored in a private Supabase bucket; authorized API responses issue five-minute
+signed links, while upload-file routes stream the object after relationship-based
+authorization.
+
+For the pilot environment checklist and remaining deployment decisions, see
+[`docs/PILOT_DEPLOYMENT.md`](docs/PILOT_DEPLOYMENT.md).
 
 ## API surface
 

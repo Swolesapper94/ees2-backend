@@ -27,6 +27,7 @@
     "test:access-assistance": "tsx scripts/test-access-assistance.ts",
     "test:pm-demo-readiness": "tsx scripts/test-pm-demo-readiness.ts",
     "test:pilot-metrics": "tsx scripts/test-pilot-metrics.ts",
+    "test:evidence-storage": "tsx scripts/evidence-storage.spec.ts",
     "ingest:regulations": "tsx src/lib/regulations/ingest.ts",
     "seed:ncoer-demo-content": "tsx scripts/seed-ncoer-demo-content.ts",
     "seed:rating-scheme-demo": "tsx scripts/seed-rating-scheme-demo.ts",

@@ -9,7 +9,7 @@
 | Domain | Approach |
 |--------|----------|
 | **Authentication** | Supabase Auth (JWT); every request server-verified — no trust of client-declared identity |
-| **Authorization** | Three enforced layers: database Row-Level Security → API role middleware → relationship/snapshot domain rules |
+| **Authorization** | Three enforced layers: database deny-by-default boundary → API role middleware → relationship/snapshot domain rules |
 | **Transport** | HTTPS; bearer-token auth on every non-health endpoint |
 | **Input validation** | Zod schema validation on every request body at the API boundary |
 | **HTTP hardening** | `helmet` security headers, configured `cors` allow-list, `morgan` request logging |
@@ -30,10 +30,10 @@
 
 ## 3. Authorization — defense in depth
 
-Authorization is enforced at **three independent layers**, so a gap in one is caught by another.
+Authorization is enforced at **three layers**.
 
-### Layer 1 — Database (Row-Level Security)
-PostgreSQL **Row-Level Security** policies (`supabase/rls-policies*.sql`) constrain what rows a given identity can read or write at the data layer itself — the last line of defense even if application code were bypassed.
+### Layer 1 — Database (deny-by-default browser boundary)
+Every public application table has PostgreSQL **Row-Level Security** enabled, and the Supabase `anon` and `authenticated` roles have no direct schema, table, sequence, or routine privileges. No browser-facing RLS policies are installed. Domain records are available only through the backend's direct database connection; if browser privileges are restored later, RLS continues to deny access until an explicit policy is added.
 
 ### Layer 2 — API (role middleware)
 `requireAuth` establishes identity; `requireRole(...)` restricts sensitive routers. For example, analytics/commander endpoints are role-gated, and a senior-rater-only endpoint returns **403** to non-senior-raters. Roles live on the `User` (`SOLDIER`, `RATER`, `SENIOR_RATER`, `REVIEWER`, `COMMANDER`, `ADMIN`, plus unit-leadership roles).
@@ -70,7 +70,7 @@ MERIT assistance is deliberately constrained so it cannot become an unaccountabl
 5. **Doctrine grounding (RAG).** Generation is grounded in searchable AR 623-3 / DA PAM 623-3 text (`RegulationChunk`), reducing hallucination and keeping output regulation-aligned.
 6. **Unsupported-fact detection.** A deterministic checker compares specific claims in a draft or edited bullet against generation evidence. It is advisory, re-runs before submission, and never becomes the sole arbiter of truth.
 7. **Prohibited-language screening.** Content barred by DA PAM 623-3 (e.g., references to protected characteristics) is screened against.
-8. **Whole-document source isolation.** The upload pipeline generates at most one candidate per extracted source fact and produces nothing for an unsupported/empty dimension. The original document is streamed only through an authenticated evaluation relationship endpoint; browser clients never receive a local `file://` path.
+8. **Whole-document source isolation.** The upload pipeline generates at most one candidate per extracted source fact and produces nothing for an unsupported/empty dimension. Evidence lives in a private bucket. Authorized API responses issue five-minute signed links, and the original support-form upload is streamed only through an authenticated evaluation relationship endpoint; browser clients never receive a local `file://` path.
 9. **Administrative boundary.** Admin navigation is hidden unless the authenticated user has application-administrator access. Identity APIs return `403` before any summary count or record is sent to an unauthorized caller; the frontend renders a dedicated access-denied experience rather than a zeroed dashboard.
 
 ---

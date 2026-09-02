@@ -16,6 +16,7 @@ import { extractPdfText, sanitizeTextForStorage } from "@/lib/pdf/extract-text";
 import { searchRegulations } from "@/lib/regulations/search";
 import { systemPromptForFormType } from "./prompts";
 import { env } from "@/config/env";
+import { loadEvidenceBuffer } from "@/lib/evidence-storage";
 
 // ─── Section definitions for regulation-aware bullet generation ───────────────
 
@@ -126,9 +127,8 @@ async function runStage1(
     console.log(`[pipeline] Loading file from local temp path: ${localPath}`);
     buffer = fs.readFileSync(localPath);
   } else {
-    // Production: fetch from remote URL
-    const response = await fetch(fileUrl);
-    buffer = Buffer.from(await response.arrayBuffer());
+    // Production: retrieve through the private storage service client.
+    buffer = await loadEvidenceBuffer(fileUrl);
   }
 
   if (fileType === "image") {

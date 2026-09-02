@@ -13,6 +13,7 @@ import { generateMilestones } from "@/lib/milestones/generate";
 import { staleSigDetect, captureSignatureHash } from "@/lib/signatures/content-hash";
 import { checkCompleteness } from "@/lib/support-form/completeness";
 import { recomputeEvalStatus } from "@/lib/evaluations/status";
+import { withEvidenceAccessUrls } from "@/lib/evidence-storage";
 import { requireEvalChainRole } from "@/lib/utils/chain-auth";
 import { authorizeEvaluationView, canEditEvaluationSection, canSignEvaluationAs, canViewEvaluation } from "@/lib/authorization-policies";
 import { authorizeDelegatedAction } from "@/lib/access-assistance/authorization";
@@ -407,7 +408,17 @@ evaluationsRouter.get(
       lastRefreshed: evaluation.ratingChain.ratedSoldier.identitySourceRecord?.lastSynchronizedAt ?? null,
     };
 
-    res.json({ ...evaluation, srMqProfile, ratedSoldierPersonnelProfile, canUseRaterEvidence: Boolean(canViewPrivateObservations) });
+    const supportForm = evaluation.supportForm
+      ? {
+          ...evaluation.supportForm,
+          entries: await Promise.all(evaluation.supportForm.entries.map(async (entry) => ({
+            ...entry,
+            artifacts: await withEvidenceAccessUrls(entry.artifacts),
+          }))),
+        }
+      : null;
+
+    res.json({ ...evaluation, supportForm, srMqProfile, ratedSoldierPersonnelProfile, canUseRaterEvidence: Boolean(canViewPrivateObservations) });
   }),
 );
 

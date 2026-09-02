@@ -399,7 +399,7 @@ Relationships: one entry has many artifacts and can link to many goals through `
 | `entryId` | `String` FK -> `support_form_entries.id` | Parent performance entry. |
 | `createdByUserId`, `lastEditedByUserId`, `onBehalfOfUserId`, `delegationGrantId` | `String?` | Attribution/assistance identifiers. |
 | `type` | `ArtifactType` | Required evidence category. |
-| `fileUrl`, `fileType` | `String`, `String` | Supabase Storage URL and image/PDF classification. |
+| `fileUrl`, `fileType` | `String`, `String` | Stable private-storage reference and image/PDF classification. Authorized API responses replace the reference with a short-lived signed URL. |
 | `aiCaption` | `String?` | Extracted factual caption. |
 | `aiCaptionStatus` | `ArtifactCaptionStatus` | Default `PENDING`. |
 | `aiCaptionError` | `String?` | Caption-generation failure detail. |
@@ -713,7 +713,7 @@ Index: `(docTitle, section)`. Vector index: `idx_regulation_chunks_embedding`, a
 | `id` | `String` PK | CUID. |
 | `evaluationId` | `String` FK -> `evaluations.id` | Required target evaluation. |
 | `uploadedById` | `String` FK -> `users.id` | Required uploader. |
-| `fileUrl`, `fileType` | `String`, `String` | Supabase Storage URL and PDF/image category. |
+| `fileUrl`, `fileType` | `String`, `String` | Stable private-storage reference and PDF/image category. The authenticated upload-file route streams the object. |
 | `parseStatus` | `SupportFormUploadStatus` | Default `PENDING_EXTRACT`. |
 | `parseError`, `rawExtract` | `String?` | Failure detail and Stage 1 vision result. |
 | `createdAt`, `updatedAt` | `DateTime` | Timestamps. |

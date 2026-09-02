@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { asyncHandler, HttpError } from "@/middleware/error";
 import { requireAuth } from "@/middleware/auth";
+import { withEvidenceAccessUrls } from "@/lib/evidence-storage";
 
 export const performanceObservationsRouter = Router();
 
@@ -172,8 +173,20 @@ performanceObservationsRouter.get(
       sessions,
       periodStart,
       periodEnd,
-      goals,
-      entries,
+      goals: await Promise.all(goals.map(async (goal) => ({
+        ...goal,
+        linkedEntries: await Promise.all(goal.linkedEntries.map(async (link) => ({
+          ...link,
+          supportFormEntry: {
+            ...link.supportFormEntry,
+            artifacts: await withEvidenceAccessUrls(link.supportFormEntry.artifacts),
+          },
+        }))),
+      }))),
+      entries: await Promise.all(entries.map(async (entry) => ({
+        ...entry,
+        artifacts: await withEvidenceAccessUrls(entry.artifacts),
+      }))),
       observations,
       canManage: isCurrentRater(actor.id, form),
       focusAdvisory: approvedGoalCount < 3 || approvedGoalCount > 5

@@ -12,6 +12,7 @@ import { generateArtifactCaption } from "@/lib/ai/artifact-captioning";
 import { requireRatingChainRole, requireSupportFormEntryOwner, requireArtifactOwner } from "@/lib/utils/chain-auth";
 import { authorizeSupportFormEntryCreate, authorizeSupportFormView, canConfirmSupportFormEntry, canEditSupportFormField, canViewSupportForm } from "@/lib/authorization-policies";
 import { notify } from "@/lib/notifications/create";
+import { createEvidenceAccessUrl, evidenceStorageReference, withEvidenceAccessUrls } from "@/lib/evidence-storage";
 
 export const supportFormsRouter = Router();
 
@@ -171,7 +172,13 @@ supportFormsRouter.get(
       },
       orderBy: { createdAt: "desc" },
     });
-    res.json(forms);
+    res.json(await Promise.all(forms.map(async (form) => ({
+      ...form,
+      entries: await Promise.all(form.entries.map(async (entry) => ({
+        ...entry,
+        artifacts: await withEvidenceAccessUrls(entry.artifacts),
+      }))),
+    }))));
   }),
 );
 
@@ -207,7 +214,10 @@ supportFormsRouter.get(
       },
       orderBy: { createdAt: "asc" },
     });
-    res.json(entries);
+    res.json(await Promise.all(entries.map(async (entry) => ({
+      ...entry,
+      artifacts: await withEvidenceAccessUrls(entry.artifacts),
+    }))));
   }),
 );
 
@@ -331,7 +341,13 @@ supportFormsRouter.get(
     if (!access.allowed) {
       throw new HttpError(404, "Support form not found");
     }
-    res.json(form);
+    res.json({
+      ...form,
+      entries: await Promise.all(form.entries.map(async (entry) => ({
+        ...entry,
+        artifacts: await withEvidenceAccessUrls(entry.artifacts),
+      }))),
+    });
   }),
 );
 
@@ -616,7 +632,7 @@ supportFormsRouter.post(
       actionUrl: `/support-form?formId=${entry.supportFormId}&queue=unreviewed`,
       actionLabel: "Review correction",
     });
-    res.json(updated);
+    res.json({ ...updated, artifacts: await withEvidenceAccessUrls(updated.artifacts) });
   }),
 );
 
@@ -785,13 +801,11 @@ supportFormsRouter.post(
       throw new HttpError(500, `Storage upload failed: ${uploadError.message}`);
     }
 
-    const { data: publicData } = supabase.storage.from("evaluations").getPublicUrl(storagePath);
-
     const artifact = await prisma.supportFormEntryArtifact.create({
       data: {
         entryId: entryId!,
         type: body.type as never,
-        fileUrl: publicData.publicUrl,
+        fileUrl: evidenceStorageReference(storagePath),
         fileType,
         flaggedByServiceMember: body.flaggedByServiceMember,
         flagNote: body.flagNote ?? null,
@@ -821,7 +835,7 @@ supportFormsRouter.post(
       },
     });
 
-    res.status(201).json(artifact);
+    res.status(201).json({ ...artifact, fileUrl: await createEvidenceAccessUrl(artifact.fileUrl) });
   }),
 );
 
@@ -848,7 +862,7 @@ supportFormsRouter.post(
       data: { actorId: req.user.id, action: "ARTIFACT_ANALYSIS_RETRIED", entityType: "SupportFormEntryArtifact", entityId: artifact.id },
     });
     generateArtifactCaption(artifact.id).catch((error) => console.error("[artifacts] Reprocessing error:", error));
-    res.status(202).json({ id: artifact.id, aiCaptionStatus: "PENDING", fileUrl: artifact.fileUrl });
+    res.status(202).json({ id: artifact.id, aiCaptionStatus: "PENDING", fileUrl: await createEvidenceAccessUrl(artifact.fileUrl) });
   }),
 );
 
@@ -1119,4 +1133,3 @@ supportFormsRouter.delete(
     res.status(204).send();
   }),
 );
-

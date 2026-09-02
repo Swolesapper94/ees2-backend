@@ -13,6 +13,7 @@
 import { prisma } from "@/lib/prisma";
 import { extractTextFromImage, callOpenAIForJson } from "./openai";
 import { extractPdfText, sanitizeTextForStorage } from "@/lib/pdf/extract-text";
+import { loadEvidenceBuffer } from "@/lib/evidence-storage";
 
 const CAPTION_SYSTEM_PROMPT = `You are reading proof/evidence a soldier attached to a support form entry
 (a certificate, score sheet, photo, or other document). Describe factually and concisely — one or two
@@ -42,10 +43,9 @@ export async function generateArtifactCaption(artifactId: string): Promise<void>
 
   try {
     let caption: string;
+    const buffer = await loadEvidenceBuffer(artifact.fileUrl);
 
     if (artifact.fileType === "image") {
-      const response = await fetch(artifact.fileUrl);
-      const buffer = Buffer.from(await response.arrayBuffer());
       const base64 = buffer.toString("base64");
 
       caption = await extractTextFromImage({
@@ -55,8 +55,6 @@ export async function generateArtifactCaption(artifactId: string): Promise<void>
       });
     } else {
       // PDF — extract text, then have OpenAI summarize it factually
-      const response = await fetch(artifact.fileUrl);
-      const buffer = Buffer.from(await response.arrayBuffer());
       const text = await extractPdfText(buffer);
 
       caption = await callOpenAIForJson<string>({
