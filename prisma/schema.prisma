@@ -302,6 +302,19 @@ enum EntrySubmissionSource {
   MOBILE_CAPTURE
 }
 
+enum PilotWorkflowType {
+  SOLDIER_ENTRY
+  RATER_OBSERVATION
+}
+
+enum PilotMetricEventType {
+  WORKFLOW_STARTED
+  EVIDENCE_STEP_REACHED
+  WORKFLOW_COMPLETED
+  WORKFLOW_FAILED
+  DRAFT_RECOVERED
+}
+
 enum SupportFormStatus {
   DRAFT
   INITIAL_COUNSELING_COMPLETE
@@ -415,6 +428,7 @@ model Unit {
   commandAssignments BattalionCommandAssignment[]
   accessGrants Delegate[]
   administrativeScopes AdministrativeScope[]
+  pilotMetricEvents PilotMetricEvent[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -495,6 +509,7 @@ model User {
   identityExceptions IdentityException[]
   administrativeScopes AdministrativeScope[] @relation("AdministrativeScopeAdministrator")
   manualOverrides ManualOverride[]
+  pilotMetricEvents PilotMetricEvent[] @relation("PilotMetricActor")
 
   @@map("users")
 }
@@ -999,6 +1014,7 @@ model GoalCounselingDiscussion {
 // only when released through a linked counseling session.
 model PerformanceObservation {
   id                         String                  @id @default(cuid())
+  clientRequestId            String?                 @unique
   supportFormId              String
   supportForm                SupportForm             @relation(fields: [supportFormId], references: [id], onDelete: Cascade)
   ratedSoldierId             String
@@ -1009,6 +1025,7 @@ model PerformanceObservation {
   goal                       Goal?                   @relation(fields: [goalId], references: [id], onDelete: SetNull)
   sectionKey                 SectionKey
   feedbackType               ObservationFeedbackType
+  captureSource              EntrySubmissionSource   @default(MERIT_PLATFORM)
   factualNote                String
   tags                       String[]                @default([])
   occurredAt                 DateTime
@@ -1024,7 +1041,36 @@ model PerformanceObservation {
   @@index([supportFormId, occurredAt])
   @@index([goalId])
   @@index([ratedSoldierId, releaseState])
+  @@index([captureSource, createdAt])
   @@map("performance_observations")
+}
+
+// Privacy-minimized product telemetry for bounded pilots. This table stores
+// workflow state and duration only—never accomplishment text, evidence, names,
+// ratings, or other evaluation content. Rows are append-only at the API layer.
+model PilotMetricEvent {
+  id             String               @id @default(cuid())
+  clientEventId  String               @unique
+  pilotId        String               @default("MERIT_MOBILE_PILOT")
+  actorId        String
+  actor          User                 @relation("PilotMetricActor", fields: [actorId], references: [id])
+  unitId         String?
+  unit           Unit?                @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  workflowId     String
+  workflowType   PilotWorkflowType
+  eventType      PilotMetricEventType
+  client         String               @default("MERIT_MOBILE")
+  durationMs     Int?
+  hasEvidence    Boolean?
+  evidenceCount  Int?
+  occurredAt     DateTime
+  createdAt      DateTime             @default(now())
+
+  @@index([pilotId, unitId, occurredAt])
+  @@index([actorId, occurredAt])
+  @@index([workflowId, eventType])
+  @@unique([actorId, workflowId, eventType])
+  @@map("pilot_metric_events")
 }
 
 // Proof attached to a SupportFormEntry — see ArtifactType above.

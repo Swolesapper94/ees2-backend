@@ -26,6 +26,7 @@ create-*.ts
 debug-*.ts
 fix-*.ts
 test-*.ts
+!scripts/test-pilot-metrics.ts
 test-*.js
 test-*.sh
 verify-*.ts

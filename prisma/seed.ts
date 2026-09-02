@@ -170,7 +170,7 @@ async function main() {
 
   const cpSsmith = await prisma.user.upsert({
     where: { email: "peter.smith@army.mil" },
-    update: { unitId: unit.id, category: "OFFICER", profilePictureUrl: "/demo-avatars/peter-smith.webp" },
+    update: { unitId: unit.id, category: "OFFICER", applicationSupportRole: "ADMINISTRATOR", profilePictureUrl: "/demo-avatars/peter-smith.webp" },
     create: {
       id: "dev-cpt-smith",
       supabaseId: "dev-cpt-smith",
@@ -180,6 +180,7 @@ async function main() {
       rank: "CPT",
       mos: "11A",
       roles: ["SOLDIER", "RATER", "SENIOR_RATER", "COMMANDER"],
+      applicationSupportRole: "ADMINISTRATOR",
       unitId: unit.id,
       category: "OFFICER",
       profilePictureUrl: "/demo-avatars/peter-smith.webp",

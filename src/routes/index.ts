@@ -22,6 +22,7 @@ import { supportRouter } from "./support";
 import { devRouter } from "./dev";
 import { supportFormUploadsRouter } from "./support-form-uploads";
 import { regulationsRouter } from "./regulations";
+import { pilotMetricsRouter } from "./pilot-metrics";
 
 export const apiRouter = Router();
 
@@ -53,3 +54,4 @@ apiRouter.use("/support", supportRouter);
 apiRouter.use("/dev", devRouter);
 apiRouter.use("/support-form-uploads", supportFormUploadsRouter);
 apiRouter.use("/regulations", regulationsRouter);
+apiRouter.use("/pilot-metrics", pilotMetricsRouter);

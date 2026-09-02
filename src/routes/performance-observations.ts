@@ -10,6 +10,7 @@ const SECTION_KEYS = ["CHARACTER", "PRESENCE", "INTELLECT", "LEADS", "DEVELOPS",
 const FEEDBACK_TYPES = ["POSITIVE", "DEVELOPMENTAL", "NEUTRAL"] as const;
 
 const observationInput = z.object({
+  clientRequestId: z.string().uuid().optional(),
   goalId: z.string().min(1).nullable().optional(),
   sectionKey: z.enum(SECTION_KEYS),
   feedbackType: z.enum(FEEDBACK_TYPES),
@@ -17,6 +18,7 @@ const observationInput = z.object({
   tags: z.array(z.string().trim().min(1).max(40)).max(2).default([]),
   occurredAt: z.coerce.date().optional(),
 });
+const observationUpdateInput = observationInput.omit({ clientRequestId: true }).partial();
 
 const releaseInput = z.object({
   counselingSessionId: z.string().min(1),
@@ -217,6 +219,17 @@ performanceObservationsRouter.post(
     }
     const body = observationInput.parse(req.body);
 
+    if (body.clientRequestId) {
+      const existing = await prisma.performanceObservation.findUnique({ where: { clientRequestId: body.clientRequestId } });
+      if (existing) {
+        if (existing.supportFormId !== form.id || existing.observerId !== actor.id) {
+          throw new HttpError(409, "This observation submission identifier is already in use.");
+        }
+        res.json(existing);
+        return;
+      }
+    }
+
     if (body.goalId) {
       const goal = await prisma.goal.findFirst({
         where: { id: body.goalId, supportFormId: form.id, approvalStatus: "APPROVED" },
@@ -227,12 +240,14 @@ performanceObservationsRouter.post(
 
     const observation = await prisma.performanceObservation.create({
       data: {
+        clientRequestId: body.clientRequestId,
         supportFormId: form.id,
         ratedSoldierId: form.soldierId,
         observerId: actor.id,
         goalId: body.goalId ?? null,
         sectionKey: body.sectionKey,
         feedbackType: body.feedbackType,
+        captureSource: req.get("X-MERIT-CLIENT") === "mobile" ? "MOBILE_CAPTURE" : "MERIT_PLATFORM",
         factualNote: body.factualNote,
         tags: body.tags,
         occurredAt: body.occurredAt ?? new Date(),
@@ -266,7 +281,7 @@ performanceObservationsRouter.patch(
       where: { id: req.params.observationId!, supportFormId: form.id, observerId: actor.id },
     });
     if (!observation) throw new HttpError(404, "Performance observation not found.");
-    const body = observationInput.partial().parse(req.body);
+    const body = observationUpdateInput.parse(req.body);
 
     if (body.goalId) {
       const goal = await prisma.goal.findFirst({

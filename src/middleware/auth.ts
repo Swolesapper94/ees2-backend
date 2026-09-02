@@ -21,6 +21,7 @@ const DEV_USERS: Record<string, User> = {
     rank: "CPT",
     mos: "11A",
     roles: ["SOLDIER", "RATER", "SENIOR_RATER", "COMMANDER"],
+    applicationSupportRole: "ADMINISTRATOR",
     unitId: "dev-unit-505",
     createdAt: new Date("2024-01-01"),
     updatedAt: new Date("2024-01-01"),
@@ -228,6 +229,23 @@ export function requireRole(...roles: string[]) {
     }
     next();
   };
+}
+
+/** Platform-level access for product operations and cross-unit pilot analytics. */
+export function requirePlatformAdministrator(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  if (!req.user) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+  if (req.user.applicationSupportRole !== "ADMINISTRATOR") {
+    res.status(403).json({ error: "Platform administrator access required" });
+    return;
+  }
+  next();
 }
 
 /** Application administration is separate from rating authority. */
