@@ -670,6 +670,7 @@ export async function generateBulletsFromEntries(args: {
       observer: { select: { firstName: true, lastName: true, rank: true } },
       goal: { select: { title: true, description: true, approvalStatus: true } },
       discussedInCounselingSession: { select: { sessionDate: true } },
+      artifacts: true,
     },
   });
 
@@ -716,6 +717,12 @@ ${regContext}`;
       ];
       if (observation.goal?.approvalStatus === "APPROVED") {
         parts.push(`   Linked performance goal context: ${observation.goal.title}: ${observation.goal.description}`);
+      }
+      const captions = observation.artifacts
+        .filter((artifact) => artifact.aiCaptionStatus === "COMPLETE" && artifact.aiCaption)
+        .map((artifact) => artifact.aiCaption);
+      if (captions.length > 0) {
+        parts.push(`   Supporting evidence: ${captions.join("; ")}`);
       }
       if (observation.releaseState === "RELEASED_IN_COUNSELING" && observation.discussedInCounselingSession) {
         parts.push(`   Discussed in counseling on ${observation.discussedInCounselingSession.sessionDate.toLocaleDateString()}.`);

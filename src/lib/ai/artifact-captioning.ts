@@ -15,9 +15,9 @@ import { extractTextFromImage, callOpenAIForJson } from "./openai";
 import { extractPdfText, sanitizeTextForStorage } from "@/lib/pdf/extract-text";
 import { loadEvidenceBuffer } from "@/lib/evidence-storage";
 
-const CAPTION_SYSTEM_PROMPT = `You are reading proof/evidence a soldier attached to a support form entry
+const CAPTION_SYSTEM_PROMPT = `You are reading supporting evidence attached to a MERIT performance record
 (a certificate, score sheet, photo, or other document). Describe factually and concisely — one or two
-sentences, no more than 240 characters — what the document/photo shows and what it proves. Include any
+sentences, no more than 240 characters — what the document/photo shows and what it supports. Include any
 visible names, dates, scores, course/award titles, or units. Do NOT speculate or embellish beyond what is
 visible. If the image/document is illegible or unrelated, say so plainly.
 Output plain text only — no preamble, no markdown.`;
@@ -100,6 +100,70 @@ export async function generateArtifactCaption(artifactId: string): Promise<void>
           entityType: "SupportFormEntryArtifact",
           entityId: artifact.id,
           metadata: { entryId: artifact.entryId, evidencePreserved: true },
+        },
+      });
+    }
+  }
+}
+
+export async function generateObservationArtifactCaption(artifactId: string): Promise<void> {
+  const artifact = await prisma.performanceObservationArtifact.findUnique({ where: { id: artifactId } });
+  if (!artifact) return;
+
+  try {
+    const buffer = await loadEvidenceBuffer(artifact.fileUrl);
+    let caption: string;
+    if (artifact.fileType === "image") {
+      caption = await extractTextFromImage({
+        imageBase64: buffer.toString("base64"),
+        mediaType: detectMediaType(artifact.fileUrl),
+        systemPrompt: CAPTION_SYSTEM_PROMPT,
+      });
+    } else {
+      const text = await extractPdfText(buffer);
+      caption = await callOpenAIForJson<string>({
+        systemPrompt: CAPTION_SYSTEM_PROMPT,
+        userPrompt: `Raw text extracted from the uploaded PDF:\n\n${text.slice(0, 4000)}\n\nDescribe what it shows, per the instructions. Return as a plain string (not JSON).`,
+        maxTokens: 300,
+      }).catch(() => text.slice(0, 240));
+    }
+
+    await prisma.performanceObservationArtifact.update({
+      where: { id: artifact.id },
+      data: {
+        aiCaption: sanitizeTextForStorage(caption).slice(0, 500),
+        aiCaptionStatus: "COMPLETE",
+        aiCaptionError: null,
+      },
+    });
+    if (artifact.createdByUserId) {
+      await prisma.auditLog.create({
+        data: {
+          actorId: artifact.createdByUserId,
+          action: "OBSERVATION_ARTIFACT_ANALYSIS_COMPLETED",
+          entityType: "PerformanceObservationArtifact",
+          entityId: artifact.id,
+          metadata: { observationId: artifact.observationId, evidencePreserved: true },
+        },
+      });
+    }
+  } catch (error) {
+    console.error("[artifact-captioning] Error captioning observation artifact:", artifactId, error);
+    await prisma.performanceObservationArtifact.update({
+      where: { id: artifact.id },
+      data: {
+        aiCaptionStatus: "FAILED",
+        aiCaptionError: sanitizeTextForStorage(error instanceof Error ? error.message : String(error)),
+      },
+    });
+    if (artifact.createdByUserId) {
+      await prisma.auditLog.create({
+        data: {
+          actorId: artifact.createdByUserId,
+          action: "OBSERVATION_ARTIFACT_ANALYSIS_FAILED",
+          entityType: "PerformanceObservationArtifact",
+          entityId: artifact.id,
+          metadata: { observationId: artifact.observationId, evidencePreserved: true },
         },
       });
     }

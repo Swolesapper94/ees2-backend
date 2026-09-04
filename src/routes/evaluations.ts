@@ -343,6 +343,7 @@ evaluationsRouter.get(
                 observer: { select: { id: true, firstName: true, lastName: true, rank: true } },
                 goal: { select: { id: true, title: true, description: true, approvalStatus: true } },
                 discussedInCounselingSession: { select: { id: true, type: true, sessionDate: true } },
+                artifacts: true,
               },
               orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
             },
@@ -414,6 +415,10 @@ evaluationsRouter.get(
           entries: await Promise.all(evaluation.supportForm.entries.map(async (entry) => ({
             ...entry,
             artifacts: await withEvidenceAccessUrls(entry.artifacts),
+          }))),
+          observations: await Promise.all(evaluation.supportForm.observations.map(async (observation) => ({
+            ...observation,
+            artifacts: await withEvidenceAccessUrls(observation.artifacts),
           }))),
         }
       : null;

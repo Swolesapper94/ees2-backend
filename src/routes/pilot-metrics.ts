@@ -222,6 +222,7 @@ pilotMetricsRouter.get(
           feedbackType: true,
           goalId: true,
           releaseState: true,
+          artifacts: { select: { id: true } },
         },
       }),
     ]);
@@ -249,7 +250,8 @@ pilotMetricsRouter.get(
     const captureDurations = completedEvents.flatMap((event) => event.durationMs === null ? [] : [event.durationMs]);
 
     const reviewedEntries = entries.filter((entry) => entry.confirmationStatus !== "UNREVIEWED");
-    const evidenceBackedEntries = entries.filter((entry) => entry.artifacts.length > 0);
+    const evidenceBackedRecords = entries.filter((entry) => entry.artifacts.length > 0).length
+      + observations.filter((observation) => observation.artifacts.length > 0).length;
     const goalLinkedRecords = entries.filter((entry) => entry.goalLinks.length > 0).length + observations.filter((observation) => observation.goalId).length;
     const usedInEvaluation = entries.filter((entry) => entry.usedInEvalId).length;
     const releasedObservations = observations.filter((observation) => observation.releaseState === "RELEASED_IN_COUNSELING").length;
@@ -317,8 +319,8 @@ pilotMetricsRouter.get(
         positiveObservations: observations.filter((observation) => observation.feedbackType === "POSITIVE").length,
       },
       quality: {
-        evidenceBackedEntries: evidenceBackedEntries.length,
-        evidenceBackedPercent: percent(evidenceBackedEntries.length, entries.length),
+        evidenceBackedEntries: evidenceBackedRecords,
+        evidenceBackedPercent: percent(evidenceBackedRecords, mobileRecords),
         goalLinkedRecords,
         goalLinkedPercent: percent(goalLinkedRecords, mobileRecords),
         confirmed: entries.filter((entry) => entry.confirmationStatus === "CONFIRMED").length,

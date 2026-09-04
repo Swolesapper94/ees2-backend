@@ -1,14 +1,33 @@
 import { Router } from "express";
+import multer from "multer";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { asyncHandler, HttpError } from "@/middleware/error";
 import { requireAuth } from "@/middleware/auth";
-import { withEvidenceAccessUrls } from "@/lib/evidence-storage";
+import { getSupabaseAdmin } from "@/lib/supabase";
+import { generateObservationArtifactCaption } from "@/lib/ai/artifact-captioning";
+import { createEvidenceAccessUrl, evidenceStoragePath, evidenceStorageReference, withEvidenceAccessUrls } from "@/lib/evidence-storage";
 
 export const performanceObservationsRouter = Router();
 
 const SECTION_KEYS = ["CHARACTER", "PRESENCE", "INTELLECT", "LEADS", "DEVELOPS", "ACHIEVES"] as const;
 const FEEDBACK_TYPES = ["POSITIVE", "DEVELOPMENTAL", "NEUTRAL"] as const;
+const ARTIFACT_TYPES = ["CERTIFICATE", "SCORE_SHEET", "PHOTO", "DOCUMENT", "OTHER"] as const;
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+    if (allowed.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only PDF and image files (JPEG, PNG, WEBP) are accepted."));
+    }
+  },
+});
+
+const observationArtifactInput = z.object({ type: z.enum(ARTIFACT_TYPES) });
 
 const observationInput = z.object({
   clientRequestId: z.string().uuid().optional(),
@@ -161,6 +180,7 @@ performanceObservationsRouter.get(
           observer: { select: { id: true, firstName: true, lastName: true, rank: true } },
           goal: { select: { id: true, title: true, description: true } },
           discussedInCounselingSession: { select: { id: true, type: true, sessionDate: true } },
+          artifacts: true,
         },
         orderBy: { occurredAt: "desc" },
       }),
@@ -187,7 +207,10 @@ performanceObservationsRouter.get(
         ...entry,
         artifacts: await withEvidenceAccessUrls(entry.artifacts),
       }))),
-      observations,
+      observations: await Promise.all(observations.map(async (observation) => ({
+        ...observation,
+        artifacts: await withEvidenceAccessUrls(observation.artifacts),
+      }))),
       canManage: isCurrentRater(actor.id, form),
       focusAdvisory: approvedGoalCount < 3 || approvedGoalCount > 5
         ? { approvedGoalCount, message: "Focus works best with 3-5 approved active goals. This is advisory and never blocks the rating workflow." }
@@ -214,10 +237,17 @@ performanceObservationsRouter.get(
         observer: { select: { id: true, firstName: true, lastName: true, rank: true } },
         goal: { select: { id: true, title: true, description: true, approvalStatus: true } },
         discussedInCounselingSession: { select: { id: true, type: true, sessionDate: true } },
+        artifacts: true,
       },
       orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
     });
-    res.json({ observations, visibility: soldierView ? "COUNSELING_RELEASED_ONLY" : "RATER_VIEW" });
+    res.json({
+      observations: await Promise.all(observations.map(async (observation) => ({
+        ...observation,
+        artifacts: await withEvidenceAccessUrls(observation.artifacts),
+      }))),
+      visibility: soldierView ? "COUNSELING_RELEASED_ONLY" : "RATER_VIEW",
+    });
   }),
 );
 
@@ -231,6 +261,17 @@ performanceObservationsRouter.post(
       throw new HttpError(403, "Only the assigned rater may record a performance observation.");
     }
     const body = observationInput.parse(req.body);
+    const occurredAt = body.occurredAt ?? new Date();
+    const occurredDate = occurredAt.toISOString().slice(0, 10);
+    if (occurredDate > new Date().toISOString().slice(0, 10)) {
+      throw new HttpError(422, "The observation date cannot be in the future.");
+    }
+    if (
+      occurredDate < form.ratingPeriodStart.toISOString().slice(0, 10)
+      || (form.ratingPeriodEnd && occurredDate > form.ratingPeriodEnd.toISOString().slice(0, 10))
+    ) {
+      throw new HttpError(422, "The observation date must fall within the support form rating period.");
+    }
 
     if (body.clientRequestId) {
       const existing = await prisma.performanceObservation.findUnique({ where: { clientRequestId: body.clientRequestId } });
@@ -263,11 +304,12 @@ performanceObservationsRouter.post(
         captureSource: req.get("X-MERIT-CLIENT") === "mobile" ? "MOBILE_CAPTURE" : "MERIT_PLATFORM",
         factualNote: body.factualNote,
         tags: body.tags,
-        occurredAt: body.occurredAt ?? new Date(),
+        occurredAt,
       },
       include: {
         observer: { select: { id: true, firstName: true, lastName: true, rank: true } },
         goal: { select: { id: true, title: true, description: true, approvalStatus: true } },
+        artifacts: true,
       },
     });
     await audit({
@@ -278,6 +320,74 @@ performanceObservationsRouter.post(
       metadata: { feedbackType: observation.feedbackType, sectionKey: observation.sectionKey, goalId: observation.goalId },
     });
     res.status(201).json(observation);
+  }),
+);
+
+performanceObservationsRouter.post(
+  "/:formId/observations/:observationId/artifacts",
+  requireAuth,
+  upload.single("file"),
+  asyncHandler(async (req, res) => {
+    const actor = requireActor(req);
+    const form = await loadForm(req.params.formId!);
+    if (!isCurrentRater(actor.id, form)) {
+      throw new HttpError(403, "Only the assigned rater may attach evidence to this observation.");
+    }
+    const file = req.file;
+    if (!file) throw new HttpError(400, "No file provided.");
+    const body = observationArtifactInput.parse({ type: req.body.type });
+    const observation = await prisma.performanceObservation.findFirst({
+      where: { id: req.params.observationId!, supportFormId: form.id, observerId: actor.id },
+      select: { id: true },
+    });
+    if (!observation) throw new HttpError(404, "Performance observation not found.");
+    const artifactCount = await prisma.performanceObservationArtifact.count({ where: { observationId: observation.id } });
+    if (artifactCount >= 3) {
+      throw new HttpError(409, "An observation can contain at most three evidence artifacts.", "ARTIFACT_LIMIT_REACHED");
+    }
+
+    const extensionByType: Record<string, string> = {
+      "application/pdf": "pdf",
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+    };
+    const storagePath = `performance-observations/${observation.id}/${Date.now()}-${crypto.randomUUID()}.${extensionByType[file.mimetype]}`;
+    const supabase = getSupabaseAdmin();
+    const { error: uploadError } = await supabase.storage
+      .from("evaluations")
+      .upload(storagePath, file.buffer, { contentType: file.mimetype, upsert: false });
+    if (uploadError) {
+      await audit({
+        actorId: actor.id,
+        action: "OBSERVATION_ARTIFACT_UPLOAD_FAILED",
+        observationId: observation.id,
+        supportFormId: form.id,
+        metadata: { fileName: file.originalname, type: body.type, error: uploadError.message },
+      });
+      throw new HttpError(500, `Storage upload failed: ${uploadError.message}`);
+    }
+
+    const artifact = await prisma.performanceObservationArtifact.create({
+      data: {
+        observationId: observation.id,
+        createdByUserId: actor.id,
+        type: body.type,
+        fileUrl: evidenceStorageReference(storagePath),
+        fileType: file.mimetype.startsWith("image/") ? "image" : "pdf",
+      },
+    });
+    generateObservationArtifactCaption(artifact.id).catch((error) => {
+      console.error("[observation-artifacts] Captioning error (post-response):", error);
+    });
+    await audit({
+      actorId: actor.id,
+      action: "OBSERVATION_ARTIFACT_UPLOADED",
+      observationId: observation.id,
+      supportFormId: form.id,
+      metadata: { artifactId: artifact.id, type: artifact.type },
+    });
+    res.status(201).json({ ...artifact, fileUrl: await createEvidenceAccessUrl(artifact.fileUrl) });
   }),
 );
 
@@ -315,10 +425,11 @@ performanceObservationsRouter.patch(
       include: {
         observer: { select: { id: true, firstName: true, lastName: true, rank: true } },
         goal: { select: { id: true, title: true, description: true, approvalStatus: true } },
+        artifacts: true,
       },
     });
     await audit({ actorId: actor.id, action: "PERFORMANCE_OBSERVATION_EDITED", observationId: observation.id, supportFormId: form.id, metadata: { fields: Object.keys(body) } });
-    res.json(updated);
+    res.json({ ...updated, artifacts: await withEvidenceAccessUrls(updated.artifacts) });
   }),
 );
 
@@ -333,10 +444,18 @@ performanceObservationsRouter.delete(
     }
     const observation = await prisma.performanceObservation.findFirst({
       where: { id: req.params.observationId!, supportFormId: form.id, observerId: actor.id },
+      include: { artifacts: true },
     });
     if (!observation) throw new HttpError(404, "Performance observation not found.");
+    const storagePaths = observation.artifacts
+      .map((artifact) => evidenceStoragePath(artifact.fileUrl))
+      .filter((path): path is string => Boolean(path));
+    if (storagePaths.length) {
+      const { error: removeError } = await getSupabaseAdmin().storage.from("evaluations").remove(storagePaths);
+      if (removeError) throw new HttpError(500, `Evidence removal failed: ${removeError.message}`);
+    }
     await prisma.performanceObservation.delete({ where: { id: observation.id } });
-    await audit({ actorId: actor.id, action: "PERFORMANCE_OBSERVATION_DELETED", observationId: observation.id, supportFormId: form.id });
+    await audit({ actorId: actor.id, action: "PERFORMANCE_OBSERVATION_DELETED", observationId: observation.id, supportFormId: form.id, metadata: { artifactCount: observation.artifacts.length } });
     res.status(204).end();
   }),
 );

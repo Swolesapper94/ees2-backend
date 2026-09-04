@@ -5,6 +5,7 @@ import {
 } from "../src/lib/evidence-storage";
 
 const objectPath = "support-form-entries/entry-123/1735689600000.jpg";
+const observationPath = "performance-observations/observation-123/1735689600000-document.pdf";
 
 assert.equal(evidenceStorageReference(objectPath), `storage://evaluations/${objectPath}`);
 assert.equal(evidenceStoragePath(`storage://evaluations/${objectPath}`), objectPath);
@@ -17,5 +18,7 @@ assert.equal(
   objectPath,
 );
 assert.equal(evidenceStoragePath("/demo-artifacts/example.svg"), null);
+assert.equal(evidenceStorageReference(observationPath), `storage://evaluations/${observationPath}`);
+assert.equal(evidenceStoragePath(`storage://evaluations/${observationPath}`), observationPath);
 
-console.log("✓ private evidence references and legacy Supabase URLs resolve to the correct object path");
+console.log("✓ entry and observation evidence references resolve to private storage paths");

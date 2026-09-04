@@ -1035,6 +1035,7 @@ model PerformanceObservation {
   discussedInCounselingSession CounselingSession?     @relation("ObservationCounselingRelease", fields: [discussedInCounselingSessionId], references: [id], onDelete: SetNull)
   lastEditedAt               DateTime?
   lastEditedById             String?
+  artifacts                  PerformanceObservationArtifact[]
   createdAt                  DateTime                @default(now())
   updatedAt                  DateTime                @updatedAt
 
@@ -1043,6 +1044,26 @@ model PerformanceObservation {
   @@index([ratedSoldierId, releaseState])
   @@index([captureSource, createdAt])
   @@map("performance_observations")
+}
+
+// Optional image or PDF evidence captured by the assigned rater with a
+// performance observation. It follows the observation's visibility boundary.
+model PerformanceObservationArtifact {
+  id              String                 @id @default(cuid())
+  observationId   String
+  observation     PerformanceObservation @relation(fields: [observationId], references: [id], onDelete: Cascade)
+  createdByUserId String?
+  type            ArtifactType
+  fileUrl         String
+  fileType        String
+  aiCaption       String?
+  aiCaptionStatus ArtifactCaptionStatus  @default(PENDING)
+  aiCaptionError  String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  @@index([observationId])
+  @@map("performance_observation_artifacts")
 }
 
 // Privacy-minimized product telemetry for bounded pilots. This table stores
